@@ -9,6 +9,7 @@
 #include "WebView2.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include "resource.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -20,17 +21,32 @@ using namespace Microsoft::WRL;
 
 // Constants
 constexpr UINT WM_TRAYICON = WM_USER + 100;
-constexpr UINT_PTR TRAY_SUBCLASS_ID = 2001;
 
-constexpr int TOOLBAR_HEIGHT = 44;
-constexpr int PADDING = 8;
-constexpr int BUTTON_WIDTH = 64;
+constexpr int TOP_BAR_HEIGHT = 80;
+constexpr int TAB_BAR_HEIGHT = 36;
+constexpr int TAB_CORNER_RADIUS = 5; // 5px rounded corners as requested
+constexpr int TAB_WIDTH = 180;
+constexpr int TAB_MIN_WIDTH = 100;
+constexpr int TAB_CLOSE_BTN_WIDTH = 20;
+
+constexpr int SEARCH_BAR_HEIGHT = 34;
+constexpr int SEARCH_CORNER_RADIUS = 17; // Rounded pill search bar
+constexpr int SEARCH_BTN_WIDTH = 38;
 
 constexpr int IDC_EDIT_URL = 101;
 constexpr int IDC_BTN_GO = 102;
 
 constexpr const wchar_t* APP_VERSION = L"v1.0.0";
 constexpr const wchar_t* APP_NAME = L"HAZE";
+
+// Tab Data Model
+struct BrowserTab {
+    std::wstring title;
+    std::wstring url;
+    wil::com_ptr<ICoreWebView2Controller> controller;
+    wil::com_ptr<ICoreWebView2> webview;
+    bool isLoaded = false;
+};
 
 // Globals
 HINSTANCE g_hInstance = nullptr;
@@ -39,11 +55,16 @@ HWND g_hEdit = nullptr;
 HWND g_hBtnGo = nullptr;
 HWND g_hMenuWnd = nullptr;
 WNDPROC g_originalEditProc = nullptr;
+WNDPROC g_originalBtnProc = nullptr;
 HICON g_hAppIcon = nullptr;
 NOTIFYICONDATAW g_nid = { sizeof(NOTIFYICONDATAW) };
 
-wil::com_ptr<ICoreWebView2Controller> g_controller;
-wil::com_ptr<ICoreWebView2> g_webview;
+std::vector<std::unique_ptr<BrowserTab>> g_tabs;
+int g_activeTabIndex = -1;
+int g_hoveredTabIndex = -1;
+int g_hoveredCloseTabIndex = -1;
+bool g_isHoveringNewTab = false;
+bool g_isGoBtnHovered = false;
 
 // Custom Menu Items
 enum MenuAction {
@@ -65,8 +86,15 @@ struct WinUI3MenuItem {
 std::vector<WinUI3MenuItem> g_menuItems;
 int g_hoveredIndex = -1;
 
+void ResizeControls(int width, int height);
+void SwitchToTab(int index);
+void CreateNewTab(const std::wstring& initialUrl = L"https://www.google.com");
+void CloseTab(int index);
+
 void NavigateToInput(const std::wstring& input) {
-    if (!g_webview) return;
+    if (g_activeTabIndex < 0 || g_activeTabIndex >= (int)g_tabs.size()) return;
+    auto& tab = g_tabs[g_activeTabIndex];
+    if (!tab->webview) return;
 
     std::wstring trimmed = input;
     size_t first = trimmed.find_first_not_of(L" \t\r\n");
@@ -99,22 +127,41 @@ void NavigateToInput(const std::wstring& input) {
         }
     }
 
-    g_webview->Navigate(url.c_str());
+    tab->webview->Navigate(url.c_str());
+}
+
+RECT GetSearchBarRect(int clientWidth) {
+    int startX = 12;
+    int endX = clientWidth - 12;
+    return RECT{ startX, TAB_BAR_HEIGHT + 5, endX, TAB_BAR_HEIGHT + 5 + SEARCH_BAR_HEIGHT };
 }
 
 void ResizeControls(int width, int height) {
-    int editWidth = width - (PADDING * 3) - BUTTON_WIDTH;
-    if (editWidth < 50) editWidth = 50;
+    if (width <= 0 || height <= 0) return;
+
+    RECT sb = GetSearchBarRect(width);
+    int innerMargin = 16;
+    int btnMargin = 4;
+    int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
+    int editW = (sb.right - sb.left) - innerMargin - btnSize - 12;
+    if (editW < 50) editW = 50;
+
+    int editH = 22;
+    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
-        SetWindowPos(g_hEdit, nullptr, PADDING, PADDING, editWidth, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hEdit, nullptr, sb.left + innerMargin, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hBtnGo) {
-        SetWindowPos(g_hBtnGo, nullptr, PADDING * 2 + editWidth, PADDING, BUTTON_WIDTH, 28, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnGo, nullptr, sb.right - btnMargin - btnSize, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     }
-    if (g_controller) {
-        RECT bounds{ 0, TOOLBAR_HEIGHT, width, height };
-        g_controller->put_Bounds(bounds);
+
+    if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
+        auto& tab = g_tabs[g_activeTabIndex];
+        if (tab->controller) {
+            RECT bounds{ 0, TOP_BAR_HEIGHT, width, height };
+            tab->controller->put_Bounds(bounds);
+        }
     }
 }
 
@@ -138,24 +185,138 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
 }
 
-void InitWebView(HWND hWnd) {
+// Subclass custom Arrow Go Button
+LRESULT CALLBACK ArrowButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        // Background circle/pill
+        COLORREF bgCol = g_isGoBtnHovered ? RGB(225, 227, 232) : RGB(238, 240, 244);
+        HBRUSH bgBrush = CreateSolidBrush(bgCol);
+        HPEN nullPen = (HPEN)GetStockObject(NULL_PEN);
+        HGDIOBJ oldBrush = SelectObject(hdc, bgBrush);
+        HGDIOBJ oldPen = SelectObject(hdc, nullPen);
+
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, rc.right - rc.left, rc.bottom - rc.top);
+
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(bgBrush);
+
+        // Draw modern arrow "→"
+        HFONT hArrowFont = CreateFontW(17, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HGDIOBJ prevFont = SelectObject(hdc, hArrowFont);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(40, 42, 48));
+
+        RECT textRc = rc;
+        DrawTextW(hdc, L"→", -1, &textRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        SelectObject(hdc, prevFont);
+        DeleteObject(hArrowFont);
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!g_isGoBtnHovered) {
+            g_isGoBtnHovered = true;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        g_isGoBtnHovered = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    }
+    }
+    return CallWindowProc(g_originalBtnProc, hWnd, uMsg, wParam, lParam);
+}
+
+// --------------------------------------------------------------------------
+// Tab Management
+// --------------------------------------------------------------------------
+RECT GetTabRect(int index, int clientWidth) {
+    int x = 12 + index * (TAB_WIDTH + 6);
+    int y = 4;
+    return RECT{ x, y, x + TAB_WIDTH, y + TAB_BAR_HEIGHT - 6 };
+}
+
+RECT GetNewTabBtnRect(int clientWidth) {
+    int x = 12 + (int)g_tabs.size() * (TAB_WIDTH + 6);
+    int y = 5;
+    return RECT{ x, y, x + 26, y + 26 };
+}
+
+RECT GetTabCloseRect(const RECT& tabRc) {
+    int w = 18;
+    int h = 18;
+    int right = tabRc.right - 6;
+    int top = tabRc.top + ((tabRc.bottom - tabRc.top - h) / 2);
+    return RECT{ right - w, top, right, top + h };
+}
+
+void SwitchToTab(int index) {
+    if (index < 0 || index >= (int)g_tabs.size()) return;
+
+    for (int i = 0; i < (int)g_tabs.size(); ++i) {
+        if (g_tabs[i]->controller) {
+            g_tabs[i]->controller->put_IsVisible(i == index ? TRUE : FALSE);
+        }
+    }
+
+    g_activeTabIndex = index;
+    auto& activeTab = g_tabs[index];
+
+    if (g_hEdit && !activeTab->url.empty()) {
+        SetWindowTextW(g_hEdit, activeTab->url.c_str());
+    }
+
+    RECT rc;
+    GetClientRect(g_hWnd, &rc);
+    ResizeControls(rc.right - rc.left, rc.bottom - rc.top);
+
+    // Invalidate top bar
+    RECT topRc{ 0, 0, rc.right, TOP_BAR_HEIGHT };
+    InvalidateRect(g_hWnd, &topRc, FALSE);
+}
+
+void CreateNewTab(const std::wstring& initialUrl) {
+    auto tab = std::make_unique<BrowserTab>();
+    tab->title = L"New Tab";
+    tab->url = initialUrl;
+    g_tabs.push_back(std::move(tab));
+    int newIndex = (int)g_tabs.size() - 1;
+
+    HWND hWnd = g_hWnd;
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr, nullptr, nullptr,
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-            [hWnd](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+            [hWnd, newIndex, initialUrl](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(result) || !env) return result;
+                if (newIndex >= (int)g_tabs.size()) return S_OK;
 
                 env->CreateCoreWebView2Controller(
                     hWnd,
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                        [hWnd](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+                        [hWnd, newIndex, initialUrl](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
                             if (FAILED(result) || !controller) return result;
+                            if (newIndex >= (int)g_tabs.size()) return S_OK;
 
-                            g_controller = controller;
-                            g_controller->get_CoreWebView2(&g_webview);
+                            auto& tab = g_tabs[newIndex];
+                            tab->controller = controller;
+                            tab->controller->get_CoreWebView2(&tab->webview);
 
                             wil::com_ptr<ICoreWebView2Settings> settings;
-                            g_webview->get_Settings(&settings);
+                            tab->webview->get_Settings(&settings);
                             if (settings) {
                                 settings->put_IsScriptEnabled(TRUE);
                                 settings->put_AreDefaultScriptDialogsEnabled(TRUE);
@@ -163,32 +324,79 @@ void InitWebView(HWND hWnd) {
                             }
 
                             wil::com_ptr<ICoreWebView2Controller2> controller2;
-                            if (SUCCEEDED(g_controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
+                            if (SUCCEEDED(tab->controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
                                 COREWEBVIEW2_COLOR whiteColor{ 255, 255, 255, 255 };
                                 controller2->put_DefaultBackgroundColor(whiteColor);
                             }
 
-                            g_webview->add_SourceChanged(
+                            // Source change listener
+                            tab->webview->add_SourceChanged(
                                 Callback<ICoreWebView2SourceChangedEventHandler>(
-                                    [](ICoreWebView2* webview, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
+                                    [newIndex](ICoreWebView2* webview, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
                                         LPWSTR uri = nullptr;
                                         if (SUCCEEDED(webview->get_Source(&uri)) && uri) {
-                                            SetWindowTextW(g_hEdit, uri);
+                                            if (newIndex < (int)g_tabs.size()) {
+                                                g_tabs[newIndex]->url = uri;
+                                                if (g_activeTabIndex == newIndex && g_hEdit) {
+                                                    SetWindowTextW(g_hEdit, uri);
+                                                }
+                                            }
                                             CoTaskMemFree(uri);
                                         }
                                         return S_OK;
                                     }).Get(), nullptr);
 
-                            RECT bounds;
-                            GetClientRect(hWnd, &bounds);
-                            ResizeControls(bounds.right - bounds.left, bounds.bottom - bounds.top);
-                            g_controller->put_IsVisible(TRUE);
+                            // Title change listener
+                            tab->webview->add_DocumentTitleChanged(
+                                Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
+                                    [hWnd, newIndex](ICoreWebView2* webview, IUnknown*) -> HRESULT {
+                                        LPWSTR title = nullptr;
+                                        if (SUCCEEDED(webview->get_DocumentTitle(&title)) && title) {
+                                            if (newIndex < (int)g_tabs.size()) {
+                                                g_tabs[newIndex]->title = (wcslen(title) > 0) ? title : L"Google";
+                                                RECT topRc{ 0, 0, 2000, TAB_BAR_HEIGHT };
+                                                InvalidateRect(hWnd, &topRc, FALSE);
+                                            }
+                                            CoTaskMemFree(title);
+                                        }
+                                        return S_OK;
+                                    }).Get(), nullptr);
 
-                            g_webview->Navigate(L"https://www.google.com");
+                            tab->isLoaded = true;
+                            tab->webview->Navigate(initialUrl.c_str());
+
+                            SwitchToTab(newIndex);
                             return S_OK;
                         }).Get());
                 return S_OK;
             }).Get());
+}
+
+void CloseTab(int index) {
+    if (index < 0 || index >= (int)g_tabs.size()) return;
+
+    if (g_tabs.size() == 1) {
+        // Only one tab left - Navigate home or create fresh
+        g_tabs[0]->title = L"Google";
+        g_tabs[0]->url = L"https://www.google.com";
+        if (g_tabs[0]->webview) {
+            g_tabs[0]->webview->Navigate(L"https://www.google.com");
+        }
+        if (g_hEdit) SetWindowTextW(g_hEdit, L"https://www.google.com");
+        RECT topRc{ 0, 0, 2000, TOP_BAR_HEIGHT };
+        InvalidateRect(g_hWnd, &topRc, FALSE);
+        return;
+    }
+
+    if (g_tabs[index]->controller) {
+        g_tabs[index]->controller->Close();
+    }
+    g_tabs.erase(g_tabs.begin() + index);
+
+    if (g_activeTabIndex >= (int)g_tabs.size()) {
+        g_activeTabIndex = (int)g_tabs.size() - 1;
+    }
+    SwitchToTab(g_activeTabIndex);
 }
 
 // --------------------------------------------------------------------------
@@ -244,8 +452,8 @@ void ExecuteMenuAction(MenuAction act) {
         break;
     case ACTION_SETTINGS:
         RestoreMainWindow(false);
-        if (g_webview) {
-            g_webview->Navigate(L"https://www.google.com/preferences");
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"https://www.google.com/preferences");
         }
         break;
     case ACTION_QUIT:
@@ -266,7 +474,7 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         RECT rcClient;
         GetClientRect(hWnd, &rcClient);
 
-        // WinUI3 Light Theme background (#FCFCFC / almost white)
+        // WinUI3 Light Theme background (#FCFCFC)
         HBRUSH bgBrush = CreateSolidBrush(RGB(252, 252, 254));
         FillRect(hdc, &rcClient, bgBrush);
         DeleteObject(bgBrush);
@@ -309,7 +517,6 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
                 continue;
             }
 
-            // Hover indicator
             if ((int)i == g_hoveredIndex && item.isEnabled && !item.isHeader) {
                 HBRUSH hoverBrush = CreateSolidBrush(RGB(240, 240, 243));
                 HPEN hoverPen = CreatePen(PS_SOLID, 1, RGB(235, 235, 239));
@@ -391,7 +598,6 @@ void ShowWinUI3Menu() {
     int menuW = MENU_WIDTH;
     int menuH = CalculateMenuHeight();
 
-    // Position above tray or adjust within work area
     RECT workArea;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
 
@@ -427,28 +633,30 @@ void SetupMenuItems() {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 
+        // Borderless inner EDIT inside the custom rounded search bar container
         g_hEdit = CreateWindowExW(
-            WS_EX_CLIENTEDGE, L"EDIT", L"https://www.google.com",
+            0, L"EDIT", L"https://www.google.com",
             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT,
-            PADDING, PADDING, 500, 28,
+            24, TAB_BAR_HEIGHT + 10, 400, 22,
             hWnd, (HMENU)(INT_PTR)IDC_EDIT_URL, g_hInstance, nullptr);
 
         SendMessage(g_hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
         g_originalEditProc = (WNDPROC)SetWindowLongPtr(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
+        // Custom Arrow Search Button "→"
         g_hBtnGo = CreateWindowExW(
-            0, L"BUTTON", L"Search",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            510, PADDING, BUTTON_WIDTH, 28,
+            0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            430, TAB_BAR_HEIGHT + 7, 26, 26,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_GO, g_hInstance, nullptr);
 
-        SendMessage(g_hBtnGo, WM_SETFONT, (WPARAM)hFont, TRUE);
+        g_originalBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnGo, GWLP_WNDPROC, (LONG_PTR)ArrowButtonSubclassProc);
 
-        // System Tray Notification Icon setup
+        // Setup System Tray Notification Icon
         g_nid.hWnd = hWnd;
         g_nid.uID = 1;
         g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -457,7 +665,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         wcscpy_s(g_nid.szTip, L"HAZE Browser");
         Shell_NotifyIconW(NIM_ADD, &g_nid);
 
-        InitWebView(hWnd);
+        // Create initial default tab
+        CreateNewTab(L"https://www.google.com");
         break;
     }
     case WM_COMMAND: {
@@ -475,16 +684,226 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         ResizeControls(width, height);
         break;
     }
-    case WM_ERASEBKGND: {
+    case WM_CTLCOLOREDIT: {
+        // Return pure white brush for the search bar background
         HDC hdc = (HDC)wParam;
-        RECT rect;
-        GetClientRect(hWnd, &rect);
+        SetTextColor(hdc, RGB(30, 30, 32));
+        SetBkColor(hdc, RGB(255, 255, 255));
+        return (LRESULT)GetStockObject(WHITE_BRUSH);
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+
+        RECT clientRc;
+        GetClientRect(hWnd, &clientRc);
+        int width = clientRc.right - clientRc.left;
+
+        // Top bar background: Pure White
+        RECT topBarRc{ 0, 0, width, TOP_BAR_HEIGHT };
         HBRUSH whiteBrush = (HBRUSH)GetStockObject(WHITE_BRUSH);
-        FillRect(hdc, &rect, whiteBrush);
-        return 1;
+        FillRect(hdc, &topBarRc, whiteBrush);
+
+        // 1. Draw Tabs (Rectangular with 5px rounded corners)
+        HFONT hTabFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HFONT hTabBoldFont = CreateFontW(14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HFONT hCloseFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+
+        SetBkMode(hdc, TRANSPARENT);
+
+        for (size_t i = 0; i < g_tabs.size(); ++i) {
+            RECT tabRc = GetTabRect((int)i, width);
+            bool isActive = ((int)i == g_activeTabIndex);
+            bool isHover = ((int)i == g_hoveredTabIndex);
+
+            // Tab Fill Color
+            COLORREF tabBg = isActive ? RGB(244, 245, 248) : (isHover ? RGB(248, 249, 251) : RGB(255, 255, 255));
+            COLORREF tabBorder = isActive ? RGB(218, 220, 226) : (isHover ? RGB(228, 230, 235) : RGB(236, 238, 242));
+
+            HBRUSH tabBrush = CreateSolidBrush(tabBg);
+            HPEN borderPen = CreatePen(PS_SOLID, 1, tabBorder);
+            HGDIOBJ oldBrush = SelectObject(hdc, tabBrush);
+            HGDIOBJ oldPen = SelectObject(hdc, borderPen);
+
+            // 5px rounded corner rectangle for tabs
+            RoundRect(hdc, tabRc.left, tabRc.top, tabRc.right, tabRc.bottom, TAB_CORNER_RADIUS * 2, TAB_CORNER_RADIUS * 2);
+
+            SelectObject(hdc, oldBrush);
+            SelectObject(hdc, oldPen);
+            DeleteObject(tabBrush);
+            DeleteObject(borderPen);
+
+            // Draw Tab Title
+            RECT titleRc = tabRc;
+            titleRc.left += 10;
+            titleRc.right -= 26;
+
+            HGDIOBJ oldFont = SelectObject(hdc, isActive ? hTabBoldFont : hTabFont);
+            SetTextColor(hdc, isActive ? RGB(20, 22, 25) : RGB(90, 93, 100));
+            DrawTextW(hdc, g_tabs[i]->title.c_str(), -1, &titleRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            SelectObject(hdc, oldFont);
+
+            // Draw Close Button "×"
+            RECT closeRc = GetTabCloseRect(tabRc);
+            bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
+            if (isCloseHover) {
+                HBRUSH closeBg = CreateSolidBrush(RGB(225, 228, 234));
+                HPEN np = (HPEN)GetStockObject(NULL_PEN);
+                HGDIOBJ ob = SelectObject(hdc, closeBg);
+                HGDIOBJ op = SelectObject(hdc, np);
+                RoundRect(hdc, closeRc.left, closeRc.top, closeRc.right, closeRc.bottom, 4, 4);
+                SelectObject(hdc, ob);
+                SelectObject(hdc, op);
+                DeleteObject(closeBg);
+            }
+
+            HGDIOBJ ocFont = SelectObject(hdc, hCloseFont);
+            SetTextColor(hdc, isCloseHover ? RGB(200, 30, 30) : RGB(130, 134, 142));
+            DrawTextW(hdc, L"×", -1, &closeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(hdc, ocFont);
+        }
+
+        // Draw "+" New Tab Button
+        RECT newTabRc = GetNewTabBtnRect(width);
+        COLORREF newTabBg = g_isHoveringNewTab ? RGB(238, 240, 244) : RGB(248, 249, 251);
+        HBRUSH ntBrush = CreateSolidBrush(newTabBg);
+        HPEN ntBorder = CreatePen(PS_SOLID, 1, RGB(225, 227, 232));
+        HGDIOBJ ontb = SelectObject(hdc, ntBrush);
+        HGDIOBJ ontp = SelectObject(hdc, ntBorder);
+        RoundRect(hdc, newTabRc.left, newTabRc.top, newTabRc.right, newTabRc.bottom, 6, 6);
+        SelectObject(hdc, ontb);
+        SelectObject(hdc, ontp);
+        DeleteObject(ntBrush);
+        DeleteObject(ntBorder);
+
+        HGDIOBJ onFont = SelectObject(hdc, hTabBoldFont);
+        SetTextColor(hdc, RGB(60, 64, 72));
+        DrawTextW(hdc, L"+", -1, &newTabRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, onFont);
+
+        // 2. Draw Rounded Corner Search Bar Container
+        RECT searchRc = GetSearchBarRect(width);
+        HBRUSH sbBrush = (HBRUSH)GetStockObject(WHITE_BRUSH);
+        HPEN sbBorder = CreatePen(PS_SOLID, 1, RGB(214, 218, 226));
+        HGDIOBJ osb = SelectObject(hdc, sbBrush);
+        HGDIOBJ osp = SelectObject(hdc, sbBorder);
+
+        // Fully rounded pill container for search bar
+        RoundRect(hdc, searchRc.left, searchRc.top, searchRc.right, searchRc.bottom, SEARCH_CORNER_RADIUS * 2, SEARCH_CORNER_RADIUS * 2);
+
+        SelectObject(hdc, osb);
+        SelectObject(hdc, osp);
+        DeleteObject(sbBorder);
+
+        // Bottom separator line between top bar and web view
+        HPEN linePen = CreatePen(PS_SOLID, 1, RGB(235, 236, 240));
+        HGDIOBJ olp = SelectObject(hdc, linePen);
+        MoveToEx(hdc, 0, TOP_BAR_HEIGHT - 1, nullptr);
+        LineTo(hdc, width, TOP_BAR_HEIGHT - 1);
+        SelectObject(hdc, olp);
+        DeleteObject(linePen);
+
+        DeleteObject(hTabFont);
+        DeleteObject(hTabBoldFont);
+        DeleteObject(hCloseFont);
+
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        int width = rc.right - rc.left;
+
+        int newHoverTab = -1;
+        int newHoverClose = -1;
+        bool newHoverNewTab = false;
+
+        if (pt.y < TAB_BAR_HEIGHT) {
+            for (size_t i = 0; i < g_tabs.size(); ++i) {
+                RECT tabRc = GetTabRect((int)i, width);
+                if (PtInRect(&tabRc, pt)) {
+                    newHoverTab = (int)i;
+                    RECT closeRc = GetTabCloseRect(tabRc);
+                    if (PtInRect(&closeRc, pt)) {
+                        newHoverClose = (int)i;
+                    }
+                    break;
+                }
+            }
+
+            RECT ntRc = GetNewTabBtnRect(width);
+            if (PtInRect(&ntRc, pt)) {
+                newHoverNewTab = true;
+            }
+        }
+
+        if (newHoverTab != g_hoveredTabIndex || newHoverClose != g_hoveredCloseTabIndex || newHoverNewTab != g_isHoveringNewTab) {
+            g_hoveredTabIndex = newHoverTab;
+            g_hoveredCloseTabIndex = newHoverClose;
+            g_isHoveringNewTab = newHoverNewTab;
+
+            RECT topRc{ 0, 0, width, TAB_BAR_HEIGHT };
+            InvalidateRect(hWnd, &topRc, FALSE);
+
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        if (g_hoveredTabIndex != -1 || g_hoveredCloseTabIndex != -1 || g_isHoveringNewTab) {
+            g_hoveredTabIndex = -1;
+            g_hoveredCloseTabIndex = -1;
+            g_isHoveringNewTab = false;
+
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            RECT topRc{ 0, 0, rc.right - rc.left, TAB_BAR_HEIGHT };
+            InvalidateRect(hWnd, &topRc, FALSE);
+        }
+        return 0;
+    }
+    case WM_LBUTTONDOWN: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        int width = rc.right - rc.left;
+
+        if (pt.y < TAB_BAR_HEIGHT) {
+            // Check '+' New Tab Click
+            RECT ntRc = GetNewTabBtnRect(width);
+            if (PtInRect(&ntRc, pt)) {
+                CreateNewTab(L"https://www.google.com");
+                return 0;
+            }
+
+            // Check Tab Click or Close Click
+            for (size_t i = 0; i < g_tabs.size(); ++i) {
+                RECT tabRc = GetTabRect((int)i, width);
+                if (PtInRect(&tabRc, pt)) {
+                    RECT closeRc = GetTabCloseRect(tabRc);
+                    if (PtInRect(&closeRc, pt)) {
+                        CloseTab((int)i);
+                    }
+                    else {
+                        SwitchToTab((int)i);
+                    }
+                    return 0;
+                }
+            }
+        }
+        break;
     }
     case WM_CLOSE: {
-        // Closing keeps it in the system tray instead of terminating
+        // Hide to system tray
         ShowWindow(hWnd, SW_HIDE);
         return 0;
     }
@@ -516,7 +935,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    // Load App Icon from resource or fallback to file
+    // Load App Icon from resource
     g_hAppIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_HAZE_ICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
     if (!g_hAppIcon) {
         g_hAppIcon = (HICON)LoadImageW(nullptr, L"app.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
@@ -541,7 +960,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         0, 0, MENU_WIDTH, CalculateMenuHeight(),
         nullptr, nullptr, hInstance, nullptr);
 
-    // Apply rounded corners (WinUI 3 / Windows 11 style) and shadow
     if (g_hMenuWnd) {
         DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
         DwmSetWindowAttribute(g_hMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
@@ -570,7 +988,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         return 0;
     }
 
-    // Set icons explicitly for alt-tab, taskbar and titlebar
     if (g_hAppIcon) {
         SendMessage(g_hWnd, WM_SETICON, ICON_BIG, (LPARAM)g_hAppIcon);
         SendMessage(g_hWnd, WM_SETICON, ICON_SMALL, (LPARAM)g_hAppIcon);
