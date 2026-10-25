@@ -80,7 +80,7 @@ struct SearchEngineInfo {
 };
 
 std::vector<SearchEngineInfo> g_searchEngines = {
-    { L"Google", L"https://www.google.com/search?q=", L"Search Google or type a URL", L"google.png", nullptr },
+    { L"Google", L"https://www.google.com/search?q=", L"Search or enter web address", L"google.png", nullptr },
     { L"Bing", L"https://www.bing.com/search?q=", L"Search Bing or type a URL", L"bing.png", nullptr },
     { L"DuckDuckGo", L"https://duckduckgo.com/?q=", L"Search DuckDuckGo or type a URL", L"duckduckgo.png", nullptr },
     { L"Perplexity", L"https://www.perplexity.ai/search?q=", L"Search Perplexity or type a URL", L"perplexity.png", nullptr },
@@ -349,29 +349,29 @@ void ResizeControls(int width, int height) {
 
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int engineBtnW = 42;
+    int engineBtnW = 46;
     int engineBtnH = 34;
-    int engineBtnX = sb.left + 8;
+    int engineBtnX = sb.left + 12;
     int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
 
     if (g_hBtnEngine) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int btnMargin = 5;
+    int btnMargin = 6;
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
-    int editX = engineBtnX + engineBtnW + 6;
-    int editW = (sb.right - btnMargin - btnSize - 8) - editX;
+    int editX = engineBtnX + engineBtnW + 8;
+    int editW = (sb.right - btnMargin - btnSize - 12) - editX;
     if (editW < 50) editW = 50;
 
-    int editH = 32;
+    int editH = 26;
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hBtnSearch) {
-        SetWindowPos(g_hBtnSearch, nullptr, sb.right - btnMargin - btnSize - 4, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnSearch, nullptr, sb.right - btnMargin - btnSize - 6, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -429,6 +429,8 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 // Crisp arrow search button
 LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_ERASEBKGND:
+        return 1;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
@@ -438,12 +440,16 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
+        // Fill background with omnibox pill warm beige
+        SolidBrush bgBrush(Color(255, 247, 237, 218));
+        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
         if (g_isSearchBtnHovered) {
-            SolidBrush hoverBrush(Color(255, 225, 222, 215));
-            g.FillEllipse(&hoverBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+            SolidBrush hoverBrush(Color(255, 235, 224, 202));
+            g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
-        Pen arrowPen(Color(255, 60, 64, 67), 2.2f);
+        Pen arrowPen(Color(255, 110, 105, 95), 2.2f);
         arrowPen.SetStartCap(LineCapRound);
         arrowPen.SetEndCap(LineCapRound);
 
@@ -480,6 +486,8 @@ void ShowEngineDropdown();
 // Search Engine Selector Button inside Omnibox
 LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_ERASEBKGND:
+        return 1;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
@@ -490,10 +498,14 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
+        // Fill background with omnibox pill warm beige
+        SolidBrush bgBrush(Color(255, 247, 237, 218));
+        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
             AddRoundedRect(btnPath, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top), 8.0f);
-            SolidBrush hoverBrush(Color(255, 224, 220, 212));
+            SolidBrush hoverBrush(Color(255, 235, 224, 202));
             g.FillPath(&hoverBrush, &btnPath);
         }
 
@@ -542,11 +554,20 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
 // Crisp smooth vector navigation buttons (←, →, ↻) using GDI+
 LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_ERASEBKGND:
+        return 1;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
         RECT rc;
         GetClientRect(hWnd, &rc);
+
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+
+        // Fill background with pure white to match toolbar
+        SolidBrush bgBrush(Color(255, 255, 255, 255));
+        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         int id = (int)GetWindowLongPtr(hWnd, GWLP_ID);
 
@@ -559,9 +580,6 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
                 if (id == IDC_BTN_FORWARD && SUCCEEDED(tab->webview->get_CanGoForward(&can))) enabled = can;
             }
         }
-
-        Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         Color iconCol = enabled ? Color(255, 90, 94, 102) : Color(255, 195, 198, 204);
         Pen navPen(iconCol, 2.0f);
@@ -1255,11 +1273,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_CTLCOLOREDIT: {
         HDC hdc = (HDC)wParam;
-        SetTextColor(hdc, RGB(32, 33, 36));
-        // Soft beige-gray background #EDE9E1
-        SetBkColor(hdc, RGB(237, 233, 225));
-        static HBRUSH s_editBrush = CreateSolidBrush(RGB(237, 233, 225));
+        SetTextColor(hdc, RGB(60, 58, 54));
+        // Soft beige-warm background #F7EDDA
+        SetBkColor(hdc, RGB(247, 237, 218));
+        static HBRUSH s_editBrush = CreateSolidBrush(RGB(247, 237, 218));
         return (LRESULT)s_editBrush;
+    }
+    case WM_CTLCOLORBTN: {
+        HWND hBtn = (HWND)lParam;
+        if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
+            static HBRUSH s_pillBrush = CreateSolidBrush(RGB(247, 237, 218));
+            return (LRESULT)s_pillBrush;
+        }
+        static HBRUSH s_whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
+        return (LRESULT)s_whiteBrush;
     }
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -1362,10 +1389,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.DrawLine(&plusPen, ntcx - 5.5f, ntcy, ntcx + 5.5f, ntcy);
         g.DrawLine(&plusPen, ntcx, ntcy - 5.5f, ntcx, ntcy + 5.5f);
 
-        // 4. Draw Pill-Shaped Rounded Search Bar (#EDE9E1 background with clean border)
+        // 4. Draw Pill-Shaped Rounded Search Bar (#F7EDDA background with clean subtle warm border)
         RECT searchRc = GetSearchBarOuterRect(width);
-        Color borderColor = g_isEditFocused ? Color(255, 26, 115, 232) : Color(255, 222, 218, 210);
-        Pen borderPen(borderColor, 1.6f);
+        Color borderColor = g_isEditFocused ? Color(255, 205, 185, 155) : Color(255, 235, 225, 206);
+        Pen borderPen(borderColor, 1.2f);
 
         REAL sx = (REAL)searchRc.left;
         REAL sy = (REAL)searchRc.top;
@@ -1378,7 +1405,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        SolidBrush omniboxBgBrush(Color(255, 237, 233, 225));
+        SolidBrush omniboxBgBrush(Color(255, 247, 237, 218));
         g.FillPath(&omniboxBgBrush, &sbPath);
         g.DrawPath(&borderPen, &sbPath);
 
