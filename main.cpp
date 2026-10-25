@@ -30,10 +30,10 @@ constexpr UINT WM_TRAYICON = WM_USER + 100;
 
 // Spacious heights and layout
 constexpr int TOP_BAR_HEIGHT = 106;
-constexpr int TAB_BAR_HEIGHT = 44; // Bigger tabs area
+constexpr int TAB_BAR_HEIGHT = 44;
 constexpr int TAB_WIDTH = 230;
 
-constexpr int SEARCH_BAR_HEIGHT = 48; // Bigger comfortable search pill
+constexpr int SEARCH_BAR_HEIGHT = 48;
 constexpr int NAV_BUTTONS_WIDTH = 132;
 
 constexpr int IDC_EDIT_URL = 101;
@@ -41,6 +41,7 @@ constexpr int IDC_BTN_SEARCH = 102;
 constexpr int IDC_BTN_BACK = 103;
 constexpr int IDC_BTN_FORWARD = 104;
 constexpr int IDC_BTN_RELOAD = 105;
+constexpr int IDC_BTN_ENGINE = 106;
 
 constexpr const wchar_t* APP_VERSION = L"v1.0.0";
 constexpr const wchar_t* APP_NAME = L"HAZE";
@@ -66,6 +67,25 @@ const wchar_t* INJECTED_INTER_SCRIPT = LR"(
 })();
 )";
 
+// Search Engine definition
+struct SearchEngineInfo {
+    std::wstring name;
+    std::wstring queryPrefix;
+    std::wstring placeholder;
+    std::wstring iconFile;
+    Gdiplus::Bitmap* pBitmap = nullptr;
+};
+
+std::vector<SearchEngineInfo> g_searchEngines = {
+    { L"Google", L"https://www.google.com/search?q=", L"Search Google or type a URL", L"google.png", nullptr },
+    { L"Bing", L"https://www.bing.com/search?q=", L"Search Bing or type a URL", L"bing.png", nullptr },
+    { L"DuckDuckGo", L"https://duckduckgo.com/?q=", L"Search DuckDuckGo or type a URL", L"duckduckgo.png", nullptr },
+    { L"Perplexity", L"https://www.perplexity.ai/search?q=", L"Search Perplexity or type a URL", L"perplexity.png", nullptr },
+    { L"Wikipedia (en)", L"https://en.wikipedia.org/wiki/Special:Search?search=", L"Search Wikipedia or type a URL", L"wikipedia.png", nullptr }
+};
+
+int g_selectedEngineIndex = 0;
+
 // Tab Data Model
 struct BrowserTab {
     std::wstring title;
@@ -80,13 +100,16 @@ HINSTANCE g_hInstance = nullptr;
 HWND g_hWnd = nullptr;
 HWND g_hEdit = nullptr;
 HWND g_hBtnSearch = nullptr;
+HWND g_hBtnEngine = nullptr;
 HWND g_hBtnBack = nullptr;
 HWND g_hBtnForward = nullptr;
 HWND g_hBtnReload = nullptr;
 HWND g_hMenuWnd = nullptr;
+HWND g_hEngineDropdownWnd = nullptr;
 
 WNDPROC g_originalEditProc = nullptr;
 WNDPROC g_originalSearchBtnProc = nullptr;
+WNDPROC g_originalEngineBtnProc = nullptr;
 WNDPROC g_originalNavBtnProc = nullptr;
 
 HICON g_hAppIcon = nullptr;
@@ -99,6 +122,7 @@ int g_hoveredTabIndex = -1;
 int g_hoveredCloseTabIndex = -1;
 bool g_isHoveringNewTab = false;
 bool g_isSearchBtnHovered = false;
+bool g_isEngineBtnHovered = false;
 bool g_isEditFocused = false;
 
 std::wstring g_homePageHtml;
@@ -122,11 +146,13 @@ struct WinUI3MenuItem {
 
 std::vector<WinUI3MenuItem> g_menuItems;
 int g_hoveredIndex = -1;
+int g_engineDropdownHoveredIndex = -1;
 
 void ResizeControls(int width, int height);
 void SwitchToTab(int index);
 void CreateNewTab(const std::wstring& initialUrl = L"about:blank");
 void CloseTab(int index);
+void UpdateOmniboxCueBanner();
 
 void AddRoundedRect(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) {
     REAL d = r * 2.0f;
@@ -135,6 +161,32 @@ void AddRoundedRect(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) 
     path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
     path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
     path.CloseFigure();
+}
+
+void LoadSearchEngineIcons() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir(exePath);
+    size_t pos = dir.find_last_of(L"\\/");
+    std::wstring basePath = (pos != std::wstring::npos) ? dir.substr(0, pos + 1) : L"";
+
+    for (auto& eng : g_searchEngines) {
+        std::wstring paths[] = {
+            basePath + L"icons\\" + eng.iconFile,
+            basePath + L"..\\icons\\" + eng.iconFile,
+            basePath + L"..\\..\\icons\\" + eng.iconFile,
+            L"d:\\Projects\\Haze_desktop\\Haze_desktop\\icons\\" + eng.iconFile
+        };
+        for (const auto& p : paths) {
+            DWORD dwAttrib = GetFileAttributesW(p.c_str());
+            if (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+                eng.pBitmap = Gdiplus::Bitmap::FromFile(p.c_str());
+                if (eng.pBitmap && eng.pBitmap->GetLastStatus() == Ok) {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 std::wstring LoadHomePageHtml() {
@@ -169,10 +221,8 @@ std::wstring LoadHomePageHtml() {
 }
 
 bool IsLikelyUrl(const std::wstring& str) {
-    // If it has spaces, it's definitely a search query
     if (str.find(L' ') != std::wstring::npos) return false;
 
-    // Check scheme
     if (str.find(L"http://") == 0 || str.find(L"https://") == 0 ||
         str.find(L"file:///") == 0 || str.find(L"ftp://") == 0 ||
         str.find(L"edge://") == 0 || str.find(L"chrome://") == 0 ||
@@ -180,34 +230,29 @@ bool IsLikelyUrl(const std::wstring& str) {
         return true;
     }
 
-    // Check localhost or localhost:port
     if (str == L"localhost" || str.find(L"localhost:") == 0) {
         return true;
     }
 
-    // Check IP address format (e.g. 192.168.1.1, 127.0.0.1)
     int dotCount = 0;
     bool allDigitsAndDots = true;
     for (wchar_t c : str) {
         if (c == L'.') dotCount++;
-        else if (c == L':') break; // port follows
+        else if (c == L':') break;
         else if (!iswdigit(c)) { allDigitsAndDots = false; }
     }
     if (dotCount == 3 && allDigitsAndDots) {
         return true;
     }
 
-    // Check domain with dot and valid top level domain or path
     size_t lastDot = str.rfind(L'.');
     if (lastDot != std::wstring::npos && lastDot + 1 < str.length()) {
-        // Extract suffix before any slash or port
         std::wstring tld = str.substr(lastDot + 1);
         size_t slashPos = tld.find_first_of(L"/:?#");
         if (slashPos != std::wstring::npos) {
             tld = tld.substr(0, slashPos);
         }
 
-        // TLD should be letters and at least 2 chars
         if (tld.length() >= 2) {
             bool validTld = true;
             for (wchar_t c : tld) {
@@ -224,7 +269,6 @@ bool IsLikelyUrl(const std::wstring& str) {
 }
 
 std::wstring UrlEncodeQuery(const std::wstring& input) {
-    // UTF-8 encode then percent encode
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, input.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (utf8Len <= 0) return L"";
 
@@ -271,8 +315,8 @@ void NavigateToInput(const std::wstring& input) {
         url = L"https://" + trimmed;
     }
     else {
-        // Universal full web search via Google
-        url = L"https://www.google.com/search?q=" + UrlEncodeQuery(trimmed);
+        const auto& engine = g_searchEngines[g_selectedEngineIndex];
+        url = engine.queryPrefix + UrlEncodeQuery(trimmed);
     }
 
     tab->webview->Navigate(url.c_str());
@@ -284,29 +328,44 @@ RECT GetSearchBarOuterRect(int clientWidth) {
     return RECT{ startX, TAB_BAR_HEIGHT + 7, endX, TAB_BAR_HEIGHT + 7 + SEARCH_BAR_HEIGHT };
 }
 
+void UpdateOmniboxCueBanner() {
+    if (g_hEdit && g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
+        const auto& engine = g_searchEngines[g_selectedEngineIndex];
+        SendMessage(g_hEdit, EM_SETCUEBANNER, TRUE, (LPARAM)engine.placeholder.c_str());
+    }
+}
+
 void ResizeControls(int width, int height) {
     if (width <= 0 || height <= 0) return;
 
-    // Center Navigation Buttons (←, →, ↻) vertically in the toolbar
     int navY = TAB_BAR_HEIGHT + ((TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - 32) / 2);
     int navBtnSize = 32;
     if (g_hBtnBack)    SetWindowPos(g_hBtnBack, nullptr, 14, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     if (g_hBtnForward) SetWindowPos(g_hBtnForward, nullptr, 50, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     if (g_hBtnReload)  SetWindowPos(g_hBtnReload, nullptr, 86, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Search Bar & Search Action Button
+    // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int innerMargin = 18;
+    int engineBtnW = 42;
+    int engineBtnH = 34;
+    int engineBtnX = sb.left + 8;
+    int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
+
+    if (g_hBtnEngine) {
+        SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     int btnMargin = 5;
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
-    int editW = (sb.right - sb.left) - innerMargin - btnSize - 18;
+    int editX = engineBtnX + engineBtnW + 6;
+    int editW = (sb.right - btnMargin - btnSize - 8) - editX;
     if (editW < 50) editW = 50;
 
-    int editH = 32; // Expanded edit height for 1.25x larger font and centered padding
+    int editH = 32;
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
-        SetWindowPos(g_hEdit, nullptr, sb.left + innerMargin, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hBtnSearch) {
         SetWindowPos(g_hBtnSearch, nullptr, sb.right - btnMargin - btnSize - 4, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -364,7 +423,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
 }
 
-// Crisp anti-aliased magnifying glass button with GDI+
+// Crisp arrow search button
 LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_PAINT: {
@@ -377,17 +436,20 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         if (g_isSearchBtnHovered) {
-            SolidBrush hoverBrush(Color(255, 232, 235, 242));
+            SolidBrush hoverBrush(Color(255, 225, 222, 215));
             g.FillEllipse(&hoverBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
         }
 
-        Pen iconPen(Color(255, 66, 133, 244), 2.4f);
-        REAL cx = (rc.left + rc.right) / 2.0f - 1.5f;
-        REAL cy = (rc.top + rc.bottom) / 2.0f - 1.5f;
-        REAL r = 5.5f;
+        Pen arrowPen(Color(255, 60, 64, 67), 2.2f);
+        arrowPen.SetStartCap(LineCapRound);
+        arrowPen.SetEndCap(LineCapRound);
 
-        g.DrawEllipse(&iconPen, cx - r, cy - r, r * 2.0f, r * 2.0f);
-        g.DrawLine(&iconPen, cx + 4.0f, cy + 4.0f, cx + 8.5f, cy + 8.5f);
+        REAL cx = (rc.left + rc.right) / 2.0f;
+        REAL cy = (rc.top + rc.bottom) / 2.0f;
+
+        g.DrawLine(&arrowPen, cx - 6.0f, cy, cx + 5.0f, cy);
+        g.DrawLine(&arrowPen, cx + 5.0f, cy, cx + 0.5f, cy - 4.5f);
+        g.DrawLine(&arrowPen, cx + 5.0f, cy, cx + 0.5f, cy + 4.5f);
 
         EndPaint(hWnd, &ps);
         return 0;
@@ -408,6 +470,70 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
     }
     }
     return CallWindowProc(g_originalSearchBtnProc, hWnd, uMsg, wParam, lParam);
+}
+
+void ShowEngineDropdown();
+
+// Search Engine Selector Button inside Omnibox
+LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
+        if (g_isEngineBtnHovered) {
+            GraphicsPath btnPath;
+            AddRoundedRect(btnPath, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top), 8.0f);
+            SolidBrush hoverBrush(Color(255, 224, 220, 212));
+            g.FillPath(&hoverBrush, &btnPath);
+        }
+
+        // Draw Selected Engine Icon
+        if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
+            auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
+            if (pBmp) {
+                g.DrawImage(pBmp, 4.0f, ((rc.bottom - rc.top) - 22.0f) / 2.0f, 22.0f, 22.0f);
+            }
+        }
+
+        // Draw small dropdown caret
+        Pen caretPen(Color(255, 95, 99, 104), 1.8f);
+        caretPen.SetStartCap(LineCapRound);
+        caretPen.SetEndCap(LineCapRound);
+        REAL caretX = (REAL)rc.right - 10.0f;
+        REAL caretY = (rc.top + rc.bottom) / 2.0f - 1.0f;
+        g.DrawLine(&caretPen, caretX - 3.5f, caretY - 2.0f, caretX, caretY + 2.0f);
+        g.DrawLine(&caretPen, caretX, caretY + 2.0f, caretX + 3.5f, caretY - 2.0f);
+
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!g_isEngineBtnHovered) {
+            g_isEngineBtnHovered = true;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        g_isEngineBtnHovered = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    }
+    case WM_LBUTTONDOWN: {
+        ShowEngineDropdown();
+        return 0;
+    }
+    }
+    return CallWindowProc(g_originalEngineBtnProc, hWnd, uMsg, wParam, lParam);
 }
 
 // Crisp smooth vector navigation buttons (←, →, ↻) using GDI+
@@ -472,7 +598,7 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 }
 
 // --------------------------------------------------------------------------
-// Tab Coordinates & Geometry (Bigger, spacious layout)
+// Tab Coordinates & Geometry
 // --------------------------------------------------------------------------
 RECT GetTabRect(int index, int clientWidth) {
     int x = 8 + index * (TAB_WIDTH + 4);
@@ -563,10 +689,8 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                 controller2->put_DefaultBackgroundColor(whiteColor);
                             }
 
-                            // Inject Inter font into every page loaded
                             tab->webview->AddScriptToExecuteOnDocumentCreated(INJECTED_INTER_SCRIPT, nullptr);
 
-                            // Source change listener
                             tab->webview->add_SourceChanged(
                                 Callback<ICoreWebView2SourceChangedEventHandler>(
                                     [newIndex](ICoreWebView2* webview, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
@@ -588,7 +712,6 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                         return S_OK;
                                     }).Get(), nullptr);
 
-                            // Document Title listener
                             tab->webview->add_DocumentTitleChanged(
                                 Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
                                     [hWnd, newIndex](ICoreWebView2* webview, IUnknown*) -> HRESULT {
@@ -606,7 +729,6 @@ void CreateNewTab(const std::wstring& initialUrl) {
 
                             tab->isLoaded = true;
 
-                            // If blank or about:blank, navigate to beautiful centered HAZE homepage
                             if (initialUrl.empty() || initialUrl == L"about:blank") {
                                 tab->title = L"New Tab";
                                 tab->webview->NavigateToString(g_homePageHtml.c_str());
@@ -677,22 +799,20 @@ RECT GetItemRect(int index) {
 }
 
 int GetItemFromPoint(POINT pt) {
-    int y = MENU_PADDING_Y;
     for (size_t i = 0; i < g_menuItems.size(); ++i) {
-        int itemH = g_menuItems[i].isSeparator ? SEPARATOR_HEIGHT : ITEM_HEIGHT;
-        if (pt.y >= y && pt.y < y + itemH && pt.x >= MENU_PADDING_X && pt.x <= (MENU_WIDTH - MENU_PADDING_X)) {
+        RECT rc = GetItemRect((int)i);
+        if (PtInRect(&rc, pt)) {
             if (g_menuItems[i].isSeparator || g_menuItems[i].isHeader || !g_menuItems[i].isEnabled) {
                 return -1;
             }
             return (int)i;
         }
-        y += itemH;
     }
     return -1;
 }
 
-void ExecuteMenuAction(MenuAction act) {
-    switch (act) {
+void ExecuteMenuAction(MenuAction action) {
+    switch (action) {
     case ACTION_OPEN_HAZE:
         RestoreMainWindow(false);
         break;
@@ -702,11 +822,10 @@ void ExecuteMenuAction(MenuAction act) {
     case ACTION_SETTINGS:
         RestoreMainWindow(false);
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            g_tabs[g_activeTabIndex]->webview->Navigate(L"https://www.google.com/preferences");
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://settings");
         }
         break;
     case ACTION_QUIT:
-        Shell_NotifyIconW(NIM_DELETE, &g_nid);
         DestroyWindow(g_hWnd);
         break;
     default:
@@ -736,7 +855,6 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         Pen borderPen(Color(255, 226, 226, 229), 1.0f);
         g.DrawPath(&borderPen, &path);
 
-        // Try Inter or Segoe UI Variable
         FontFamily* pFontFamily = new FontFamily(L"Inter");
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
@@ -840,6 +958,178 @@ void ShowWinUI3Menu() {
     InvalidateRect(g_hMenuWnd, nullptr, TRUE);
 }
 
+// --------------------------------------------------------------------------
+// Search Engine Dropdown Popup Window
+// --------------------------------------------------------------------------
+constexpr int ENGINE_DROPDOWN_WIDTH = 220;
+constexpr int ENGINE_ITEM_HEIGHT = 40;
+constexpr int ENGINE_HEADER_HEIGHT = 34;
+
+int CalculateEngineDropdownHeight() {
+    return 10 + ENGINE_HEADER_HEIGHT + (int)g_searchEngines.size() * ENGINE_ITEM_HEIGHT + 8;
+}
+
+RECT GetEngineItemRect(int index) {
+    int y = 10 + ENGINE_HEADER_HEIGHT + index * ENGINE_ITEM_HEIGHT;
+    return RECT{ 8, y, ENGINE_DROPDOWN_WIDTH - 8, y + ENGINE_ITEM_HEIGHT };
+}
+
+int GetEngineItemFromPoint(POINT pt) {
+    for (size_t i = 0; i < g_searchEngines.size(); ++i) {
+        RECT rc = GetEngineItemRect((int)i);
+        if (PtInRect(&rc, pt)) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+
+        RECT rcClient;
+        GetClientRect(hWnd, &rcClient);
+
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+        g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+
+        // Background pure white
+        SolidBrush bgBrush(Color(255, 255, 255, 255));
+        g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
+
+        // Rounded border
+        GraphicsPath path;
+        AddRoundedRect(path, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 12.0f);
+        Pen borderPen(Color(255, 222, 224, 228), 1.2f);
+        g.DrawPath(&borderPen, &path);
+
+        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        if (pFontFamily->GetLastStatus() != Ok) {
+            delete pFontFamily;
+            pFontFamily = new FontFamily(L"Segoe UI");
+        }
+        Gdiplus::Font headerFont(pFontFamily, 10.0f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font itemFont(pFontFamily, 11.0f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font itemSelectedFont(pFontFamily, 11.0f, FontStyleBold, UnitPoint);
+
+        // Draw "Search with:" Header
+        SolidBrush headerBrush(Color(255, 100, 103, 107));
+        StringFormat headerFormat;
+        headerFormat.SetAlignment(StringAlignmentNear);
+        headerFormat.SetLineAlignment(StringAlignmentCenter);
+        RectF headerRc(16.0f, 10.0f, (REAL)ENGINE_DROPDOWN_WIDTH - 32.0f, (REAL)ENGINE_HEADER_HEIGHT);
+        g.DrawString(L"Search with:", -1, &headerFont, headerRc, &headerFormat, &headerBrush);
+
+        StringFormat strFormat;
+        strFormat.SetAlignment(StringAlignmentNear);
+        strFormat.SetLineAlignment(StringAlignmentCenter);
+
+        // Draw Search Engines List
+        for (size_t i = 0; i < g_searchEngines.size(); ++i) {
+            const auto& eng = g_searchEngines[i];
+            RECT itemRc = GetEngineItemRect((int)i);
+            bool isHover = ((int)i == g_engineDropdownHoveredIndex);
+            bool isSelected = ((int)i == g_selectedEngineIndex);
+
+            if (isHover || isSelected) {
+                GraphicsPath hoverPath;
+                AddRoundedRect(hoverPath, (REAL)itemRc.left, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left), (REAL)(itemRc.bottom - itemRc.top - 4), 8.0f);
+                Color hoverCol = isSelected ? Color(255, 240, 244, 252) : Color(255, 245, 246, 248);
+                SolidBrush hBrush(hoverCol);
+                g.FillPath(&hBrush, &hoverPath);
+            }
+
+            // Draw Engine Logo
+            if (eng.pBitmap) {
+                REAL iconY = itemRc.top + ((itemRc.bottom - itemRc.top - 20) / 2.0f);
+                g.DrawImage(eng.pBitmap, (REAL)itemRc.left + 10.0f, iconY, 20.0f, 20.0f);
+            }
+
+            // Draw Engine Name
+            Color textCol = isSelected ? Color(255, 26, 115, 232) : Color(255, 32, 33, 36);
+            SolidBrush textBrush(textCol);
+            RectF layoutRect((REAL)itemRc.left + 38.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 46.0f), (REAL)(itemRc.bottom - itemRc.top));
+            g.DrawString(eng.name.c_str(), -1, isSelected ? &itemSelectedFont : &itemFont, layoutRect, &strFormat, &textBrush);
+        }
+
+        delete pFontFamily;
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        int newHover = GetEngineItemFromPoint(pt);
+        if (newHover != g_engineDropdownHoveredIndex) {
+            g_engineDropdownHoveredIndex = newHover;
+            InvalidateRect(hWnd, nullptr, FALSE);
+
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        if (g_engineDropdownHoveredIndex != -1) {
+            g_engineDropdownHoveredIndex = -1;
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+    case WM_LBUTTONUP: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        int clickedIdx = GetEngineItemFromPoint(pt);
+        ShowWindow(hWnd, SW_HIDE);
+        if (clickedIdx >= 0 && clickedIdx < (int)g_searchEngines.size()) {
+            g_selectedEngineIndex = clickedIdx;
+            UpdateOmniboxCueBanner();
+            if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
+            if (g_hEdit) {
+                SetFocus(g_hEdit);
+                SendMessage(g_hEdit, EM_SETSEL, 0, -1);
+            }
+        }
+        return 0;
+    }
+    case WM_KILLFOCUS:
+        ShowWindow(hWnd, SW_HIDE);
+        return 0;
+    default:
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+}
+
+void ShowEngineDropdown() {
+    if (!g_hEngineDropdownWnd || !g_hBtnEngine) return;
+
+    RECT btnRc;
+    GetWindowRect(g_hBtnEngine, &btnRc);
+
+    int menuW = ENGINE_DROPDOWN_WIDTH;
+    int menuH = CalculateEngineDropdownHeight();
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    int posX = btnRc.left - 6;
+    if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
+    if (posX < workArea.left) posX = workArea.left + 10;
+
+    int posY = btnRc.bottom + 6;
+    if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+
+    g_engineDropdownHoveredIndex = -1;
+
+    SetWindowPos(g_hEngineDropdownWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_hEngineDropdownWnd);
+    SetFocus(g_hEngineDropdownWnd);
+    InvalidateRect(g_hEngineDropdownWnd, nullptr, TRUE);
+}
+
 void SetupMenuItems() {
     g_menuItems.clear();
     g_menuItems.push_back({ std::wstring(APP_NAME) + L" " + APP_VERSION, ACTION_VERSION, false, true, false });
@@ -857,7 +1147,6 @@ void SetupMenuItems() {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        // 1.25x larger font: 17 * 1.25 = ~21px height
         HFONT hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
@@ -888,16 +1177,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             hWnd, (HMENU)(INT_PTR)IDC_BTN_RELOAD, g_hInstance, nullptr);
         SetWindowLongPtr(g_hBtnReload, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
+        // Search engine selector button inside omnibox
+        g_hBtnEngine = CreateWindowExW(
+            0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            140, TAB_BAR_HEIGHT + 13, 42, 34,
+            hWnd, (HMENU)(INT_PTR)IDC_BTN_ENGINE, g_hInstance, nullptr);
+        g_originalEngineBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnEngine, GWLP_WNDPROC, (LONG_PTR)EngineButtonSubclassProc);
+
+        // Omnibox Edit Control
         g_hEdit = CreateWindowExW(
             0, L"EDIT", L"",
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_CENTER,
-            140, TAB_BAR_HEIGHT + 14, 400, 32,
+            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT,
+            190, TAB_BAR_HEIGHT + 14, 400, 32,
             hWnd, (HMENU)(INT_PTR)IDC_EDIT_URL, g_hInstance, nullptr);
 
         SendMessage(g_hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
-        SendMessage(g_hEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Search or enter address");
+        UpdateOmniboxCueBanner();
         g_originalEditProc = (WNDPROC)SetWindowLongPtr(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
+        // Arrow Action Button
         g_hBtnSearch = CreateWindowExW(
             0, L"BUTTON", L"",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
@@ -914,7 +1213,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         wcscpy_s(g_nid.szTip, L"HAZE Browser");
         Shell_NotifyIconW(NIM_ADD, &g_nid);
 
-        // Load HomePage HTML and start on Blank Home Page with centered logo
         g_homePageHtml = LoadHomePageHtml();
         CreateNewTab(L"about:blank");
         break;
@@ -925,6 +1223,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             wchar_t buffer[2048] = { 0 };
             GetWindowTextW(g_hEdit, buffer, ARRAYSIZE(buffer));
             NavigateToInput(buffer);
+        }
+        else if (wmId == IDC_BTN_ENGINE) {
+            ShowEngineDropdown();
         }
         else if (wmId == IDC_BTN_BACK) {
             if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
@@ -952,8 +1253,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CTLCOLOREDIT: {
         HDC hdc = (HDC)wParam;
         SetTextColor(hdc, RGB(32, 33, 36));
-        SetBkColor(hdc, RGB(255, 255, 255));
-        return (LRESULT)GetStockObject(WHITE_BRUSH);
+        // Soft beige-gray background #EDE9E1
+        SetBkColor(hdc, RGB(237, 233, 225));
+        static HBRUSH s_editBrush = CreateSolidBrush(RGB(237, 233, 225));
+        return (LRESULT)s_editBrush;
     }
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -971,7 +1274,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         SolidBrush stripBrush(Color(255, 222, 225, 230));
         g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
 
-        // 2. Toolbar & Navigation row background (#FFFFFF)
+        // 2. Toolbar & Navigation row background (Pure white)
         SolidBrush whiteBrush(Color(255, 255, 255, 255));
         g.FillRectangle(&whiteBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
 
@@ -989,7 +1292,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         strFormat.SetTrimming(StringTrimmingEllipsisCharacter);
         strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
 
-        // 3. Render Anti-Aliased Chrome-style tabs (Bigger & spacious)
+        // 3. Render Anti-Aliased Chrome-style tabs
         for (size_t i = 0; i < g_tabs.size(); ++i) {
             RECT tabRc = GetTabRect((int)i, width);
             bool isActive = ((int)i == g_activeTabIndex);
@@ -1015,18 +1318,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 g.FillPath(&hoverBrush, &tabPath);
             }
 
-            // Draw crisp icon (20x20)
             if (g_hAppIcon) {
                 DrawIconEx(hdc, tabRc.left + 14, tabRc.top + 10, g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            // Draw crisp tab title
             Color textCol = isActive ? Color(255, 28, 30, 33) : Color(255, 90, 94, 100);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 42.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 72.0f), (REAL)(tabRc.bottom - tabRc.top));
             g.DrawString(g_tabs[i]->title.c_str(), -1, isActive ? &tabBoldFont : &tabFont, titleRect, &strFormat, &textBrush);
 
-            // Draw tab close button vector "×"
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
@@ -1045,7 +1345,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             g.DrawLine(&closePen, cx + sz, cy - sz, cx - sz, cy + sz);
         }
 
-        // Draw crisp "+" New Tab Button (Spacious circle button)
+        // Draw crisp "+" New Tab Button
         RECT newTabRc = GetNewTabBtnRect(width);
         if (g_isHoveringNewTab) {
             SolidBrush ntBrush(Color(255, 230, 233, 238));
@@ -1059,10 +1359,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.DrawLine(&plusPen, ntcx - 5.5f, ntcy, ntcx + 5.5f, ntcy);
         g.DrawLine(&plusPen, ntcx, ntcy - 5.5f, ntcx, ntcy + 5.5f);
 
-        // 4. Draw Pill-Shaped Rounded Search Bar with Smooth Anti-Aliasing
+        // 4. Draw Pill-Shaped Rounded Search Bar (#EDE9E1 background with clean border)
         RECT searchRc = GetSearchBarOuterRect(width);
-        Color borderColor = g_isEditFocused ? Color(255, 26, 115, 232) : Color(255, 66, 133, 244);
-        Pen borderPen(borderColor, 2.0f);
+        Color borderColor = g_isEditFocused ? Color(255, 26, 115, 232) : Color(255, 222, 218, 210);
+        Pen borderPen(borderColor, 1.6f);
 
         REAL sx = (REAL)searchRc.left;
         REAL sy = (REAL)searchRc.top;
@@ -1075,7 +1375,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        g.FillPath(&whiteBrush, &sbPath);
+        SolidBrush omniboxBgBrush(Color(255, 237, 233, 225));
+        g.FillPath(&omniboxBgBrush, &sbPath);
         g.DrawPath(&borderPen, &sbPath);
 
         // 5. Divider Line separating top bar from WebView
@@ -1213,8 +1514,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         g_hAppIcon = (HICON)LoadImageW(nullptr, L"app.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
     }
 
+    LoadSearchEngineIcons();
     SetupMenuItems();
 
+    // Register WinUI 3 Tray Menu Class
     WNDCLASSEXW wmc{ sizeof(WNDCLASSEXW) };
     wmc.style = CS_HREDRAW | CS_VREDRAW;
     wmc.lpfnWndProc = MenuWndProc;
@@ -1235,6 +1538,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         DwmSetWindowAttribute(g_hMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
     }
 
+    // Register Search Engine Dropdown Class
+    WNDCLASSEXW wedc{ sizeof(WNDCLASSEXW) };
+    wedc.style = CS_HREDRAW | CS_VREDRAW;
+    wedc.lpfnWndProc = EngineDropdownWndProc;
+    wedc.hInstance = hInstance;
+    wedc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wedc.lpszClassName = L"HazeEngineDropdownClass";
+    RegisterClassExW(&wedc);
+
+    g_hEngineDropdownWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"HazeEngineDropdownClass", L"",
+        WS_POPUP,
+        0, 0, ENGINE_DROPDOWN_WIDTH, CalculateEngineDropdownHeight(),
+        nullptr, nullptr, hInstance, nullptr);
+
+    if (g_hEngineDropdownWnd) {
+        DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(g_hEngineDropdownWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    }
+
+    // Register Main Browser Window Class
     WNDCLASSEXW wcex{ sizeof(WNDCLASSEXW) };
     wcex.style = CS_HREDRAW | CS_VREDRAW;
     wcex.lpfnWndProc = WndProc;
@@ -1272,6 +1597,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     if (g_hMenuWnd) {
         DestroyWindow(g_hMenuWnd);
+    }
+
+    if (g_hEngineDropdownWnd) {
+        DestroyWindow(g_hEngineDropdownWnd);
+    }
+
+    for (auto& eng : g_searchEngines) {
+        if (eng.pBitmap) {
+            delete eng.pBitmap;
+            eng.pBitmap = nullptr;
+        }
     }
 
     if (g_gdiplusToken) {
