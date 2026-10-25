@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Haze_desktop.vcxproj" />
+  <Project Path="Haze_desktop.vcxproj" Id="edb5839c-c37b-412d-b2e2-dec619758e7d" />
 </Solution>
