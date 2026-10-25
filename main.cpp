@@ -29,12 +29,12 @@ using namespace Gdiplus;
 constexpr UINT WM_TRAYICON = WM_USER + 100;
 
 // Spacious heights and layout
-constexpr int TOP_BAR_HEIGHT = 100;
+constexpr int TOP_BAR_HEIGHT = 106;
 constexpr int TAB_BAR_HEIGHT = 44; // Bigger tabs area
 constexpr int TAB_WIDTH = 230;
 
-constexpr int SEARCH_BAR_HEIGHT = 42; // Bigger comfortable search pill
-constexpr int NAV_BUTTONS_WIDTH = 126;
+constexpr int SEARCH_BAR_HEIGHT = 48; // Bigger comfortable search pill
+constexpr int NAV_BUTTONS_WIDTH = 132;
 
 constexpr int IDC_EDIT_URL = 101;
 constexpr int IDC_BTN_SEARCH = 102;
@@ -168,6 +168,88 @@ std::wstring LoadHomePageHtml() {
     return L"<html><body style='background:#fff;'></body></html>";
 }
 
+bool IsLikelyUrl(const std::wstring& str) {
+    // If it has spaces, it's definitely a search query
+    if (str.find(L' ') != std::wstring::npos) return false;
+
+    // Check scheme
+    if (str.find(L"http://") == 0 || str.find(L"https://") == 0 ||
+        str.find(L"file:///") == 0 || str.find(L"ftp://") == 0 ||
+        str.find(L"edge://") == 0 || str.find(L"chrome://") == 0 ||
+        str.find(L"about:") == 0) {
+        return true;
+    }
+
+    // Check localhost or localhost:port
+    if (str == L"localhost" || str.find(L"localhost:") == 0) {
+        return true;
+    }
+
+    // Check IP address format (e.g. 192.168.1.1, 127.0.0.1)
+    int dotCount = 0;
+    bool allDigitsAndDots = true;
+    for (wchar_t c : str) {
+        if (c == L'.') dotCount++;
+        else if (c == L':') break; // port follows
+        else if (!iswdigit(c)) { allDigitsAndDots = false; }
+    }
+    if (dotCount == 3 && allDigitsAndDots) {
+        return true;
+    }
+
+    // Check domain with dot and valid top level domain or path
+    size_t lastDot = str.rfind(L'.');
+    if (lastDot != std::wstring::npos && lastDot + 1 < str.length()) {
+        // Extract suffix before any slash or port
+        std::wstring tld = str.substr(lastDot + 1);
+        size_t slashPos = tld.find_first_of(L"/:?#");
+        if (slashPos != std::wstring::npos) {
+            tld = tld.substr(0, slashPos);
+        }
+
+        // TLD should be letters and at least 2 chars
+        if (tld.length() >= 2) {
+            bool validTld = true;
+            for (wchar_t c : tld) {
+                if (!iswalpha(c)) {
+                    validTld = false;
+                    break;
+                }
+            }
+            if (validTld) return true;
+        }
+    }
+
+    return false;
+}
+
+std::wstring UrlEncodeQuery(const std::wstring& input) {
+    // UTF-8 encode then percent encode
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, input.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return L"";
+
+    std::string utf8Str(utf8Len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, input.c_str(), -1, &utf8Str[0], utf8Len, nullptr, nullptr);
+
+    std::wstring encoded;
+    for (size_t i = 0; i < (size_t)(utf8Len - 1); ++i) {
+        unsigned char c = (unsigned char)utf8Str[i];
+        if (c == ' ') {
+            encoded += L'+';
+        }
+        else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                 c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded += (wchar_t)c;
+        }
+        else {
+            wchar_t hex[8];
+            swprintf_s(hex, L"%%%02X", (unsigned int)c);
+            encoded += hex;
+        }
+    }
+    return encoded;
+}
+
 void NavigateToInput(const std::wstring& input) {
     if (g_activeTabIndex < 0 || g_activeTabIndex >= (int)g_tabs.size()) return;
     auto& tab = g_tabs[g_activeTabIndex];
@@ -180,28 +262,17 @@ void NavigateToInput(const std::wstring& input) {
     trimmed = trimmed.substr(first, (last - first + 1));
 
     std::wstring url;
-    if (trimmed.find(L"http://") == 0 || trimmed.find(L"https://") == 0) {
+    if (trimmed.find(L"http://") == 0 || trimmed.find(L"https://") == 0 ||
+        trimmed.find(L"file:///") == 0 || trimmed.find(L"edge://") == 0 ||
+        trimmed.find(L"about:") == 0) {
         url = trimmed;
     }
-    else if (trimmed.find(L" ") == std::wstring::npos && trimmed.find(L".") != std::wstring::npos) {
+    else if (IsLikelyUrl(trimmed)) {
         url = L"https://" + trimmed;
     }
     else {
-        url = L"https://www.google.com/search?q=";
-        for (wchar_t c : trimmed) {
-            if (c == L' ') {
-                url += L'+';
-            }
-            else if ((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') ||
-                     c == L'-' || c == L'_' || c == L'.' || c == L'~') {
-                url += c;
-            }
-            else {
-                wchar_t buf[10];
-                swprintf_s(buf, L"%%%02X", (unsigned int)(c & 0xFF));
-                url += buf;
-            }
-        }
+        // Universal full web search via Google
+        url = L"https://www.google.com/search?q=" + UrlEncodeQuery(trimmed);
     }
 
     tab->webview->Navigate(url.c_str());
@@ -231,7 +302,7 @@ void ResizeControls(int width, int height) {
     int editW = (sb.right - sb.left) - innerMargin - btnSize - 18;
     if (editW < 50) editW = 50;
 
-    int editH = 26; // Bigger clear edit control
+    int editH = 32; // Expanded edit height for 1.25x larger font and centered padding
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
@@ -786,11 +857,12 @@ void SetupMenuItems() {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 1.25x larger font: 17 * 1.25 = ~21px height
+        HFONT hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
         if (!hFont) {
-            hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
@@ -818,8 +890,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         g_hEdit = CreateWindowExW(
             0, L"EDIT", L"",
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT,
-            140, TAB_BAR_HEIGHT + 14, 400, 26,
+            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_CENTER,
+            140, TAB_BAR_HEIGHT + 14, 400, 32,
             hWnd, (HMENU)(INT_PTR)IDC_EDIT_URL, g_hInstance, nullptr);
 
         SendMessage(g_hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
