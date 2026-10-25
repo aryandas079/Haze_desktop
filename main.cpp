@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <fstream>
+#include <sstream>
 #include "resource.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -26,12 +28,13 @@ using namespace Gdiplus;
 // Constants
 constexpr UINT WM_TRAYICON = WM_USER + 100;
 
-constexpr int TOP_BAR_HEIGHT = 86;
-constexpr int TAB_BAR_HEIGHT = 38;
-constexpr int TAB_WIDTH = 210;
+// Spacious heights and layout
+constexpr int TOP_BAR_HEIGHT = 100;
+constexpr int TAB_BAR_HEIGHT = 44; // Bigger tabs area
+constexpr int TAB_WIDTH = 230;
 
-constexpr int SEARCH_BAR_HEIGHT = 36;
-constexpr int NAV_BUTTONS_WIDTH = 110;
+constexpr int SEARCH_BAR_HEIGHT = 42; // Bigger comfortable search pill
+constexpr int NAV_BUTTONS_WIDTH = 126;
 
 constexpr int IDC_EDIT_URL = 101;
 constexpr int IDC_BTN_SEARCH = 102;
@@ -41,6 +44,27 @@ constexpr int IDC_BTN_RELOAD = 105;
 
 constexpr const wchar_t* APP_VERSION = L"v1.0.0";
 constexpr const wchar_t* APP_NAME = L"HAZE";
+
+// Injected CSS to enforce 'Inter' as font across websites
+const wchar_t* INJECTED_INTER_SCRIPT = LR"(
+(function() {
+  if (document.getElementById('__haze_inter_font__')) return;
+  const link = document.createElement('link');
+  link.id = '__haze_inter_font__';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap';
+  document.head.appendChild(link);
+
+  const style = document.createElement('style');
+  style.id = '__haze_inter_style__';
+  style.textContent = `
+    * {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+)";
 
 // Tab Data Model
 struct BrowserTab {
@@ -77,6 +101,8 @@ bool g_isHoveringNewTab = false;
 bool g_isSearchBtnHovered = false;
 bool g_isEditFocused = false;
 
+std::wstring g_homePageHtml;
+
 // Custom Menu Items
 enum MenuAction {
     ACTION_OPEN_HAZE = 1,
@@ -99,10 +125,9 @@ int g_hoveredIndex = -1;
 
 void ResizeControls(int width, int height);
 void SwitchToTab(int index);
-void CreateNewTab(const std::wstring& initialUrl = L"https://www.google.com");
+void CreateNewTab(const std::wstring& initialUrl = L"about:blank");
 void CloseTab(int index);
 
-// Helper for smooth rounded rectangle path
 void AddRoundedRect(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) {
     REAL d = r * 2.0f;
     path.AddArc(x, y, d, d, 180.0f, 90.0f);
@@ -110,6 +135,37 @@ void AddRoundedRect(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) 
     path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
     path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
     path.CloseFigure();
+}
+
+std::wstring LoadHomePageHtml() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir(exePath);
+    size_t pos = dir.find_last_of(L"\\/");
+    std::wstring basePath = (pos != std::wstring::npos) ? dir.substr(0, pos + 1) : L"";
+
+    std::wstring possibleFiles[] = {
+        basePath + L"homepage.html",
+        basePath + L"..\\homepage.html",
+        basePath + L"..\\..\\homepage.html",
+        L"d:\\Projects\\Haze_desktop\\Haze_desktop\\homepage.html"
+    };
+
+    for (const auto& path : possibleFiles) {
+        std::ifstream file(path);
+        if (file.is_open()) {
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            std::string content = buffer.str();
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, nullptr, 0);
+            if (wlen > 0) {
+                std::wstring wcontent(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, &wcontent[0], wlen);
+                return wcontent;
+            }
+        }
+    }
+    return L"<html><body style='background:#fff;'></body></html>";
 }
 
 void NavigateToInput(const std::wstring& input) {
@@ -154,26 +210,28 @@ void NavigateToInput(const std::wstring& input) {
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = NAV_BUTTONS_WIDTH;
     int endX = clientWidth - 14;
-    return RECT{ startX, TAB_BAR_HEIGHT + 6, endX, TAB_BAR_HEIGHT + 6 + SEARCH_BAR_HEIGHT };
+    return RECT{ startX, TAB_BAR_HEIGHT + 7, endX, TAB_BAR_HEIGHT + 7 + SEARCH_BAR_HEIGHT };
 }
 
 void ResizeControls(int width, int height) {
     if (width <= 0 || height <= 0) return;
 
-    int navY = TAB_BAR_HEIGHT + 8;
-    int navBtnSize = 28;
-    if (g_hBtnBack)    SetWindowPos(g_hBtnBack, nullptr, 12, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
-    if (g_hBtnForward) SetWindowPos(g_hBtnForward, nullptr, 44, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
-    if (g_hBtnReload)  SetWindowPos(g_hBtnReload, nullptr, 76, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Center Navigation Buttons (←, →, ↻) vertically in the toolbar
+    int navY = TAB_BAR_HEIGHT + ((TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - 32) / 2);
+    int navBtnSize = 32;
+    if (g_hBtnBack)    SetWindowPos(g_hBtnBack, nullptr, 14, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_hBtnForward) SetWindowPos(g_hBtnForward, nullptr, 50, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_hBtnReload)  SetWindowPos(g_hBtnReload, nullptr, 86, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
 
+    // Search Bar & Search Action Button
     RECT sb = GetSearchBarOuterRect(width);
-    int innerMargin = 16;
-    int btnMargin = 4;
+    int innerMargin = 18;
+    int btnMargin = 5;
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
-    int editW = (sb.right - sb.left) - innerMargin - btnSize - 16;
+    int editW = (sb.right - sb.left) - innerMargin - btnSize - 18;
     if (editW < 50) editW = 50;
 
-    int editH = 22;
+    int editH = 26; // Bigger clear edit control
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
@@ -248,17 +306,17 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         if (g_isSearchBtnHovered) {
-            SolidBrush hoverBrush(Color(255, 232, 234, 240));
+            SolidBrush hoverBrush(Color(255, 232, 235, 242));
             g.FillEllipse(&hoverBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
         }
 
-        Pen iconPen(Color(255, 66, 133, 244), 2.2f);
+        Pen iconPen(Color(255, 66, 133, 244), 2.4f);
         REAL cx = (rc.left + rc.right) / 2.0f - 1.5f;
         REAL cy = (rc.top + rc.bottom) / 2.0f - 1.5f;
-        REAL r = 5.0f;
+        REAL r = 5.5f;
 
         g.DrawEllipse(&iconPen, cx - r, cy - r, r * 2.0f, r * 2.0f);
-        g.DrawLine(&iconPen, cx + 3.5f, cy + 3.5f, cx + 7.5f, cy + 7.5f);
+        g.DrawLine(&iconPen, cx + 4.0f, cy + 4.0f, cx + 8.5f, cy + 8.5f);
 
         EndPaint(hWnd, &ps);
         return 0;
@@ -306,7 +364,7 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         Color iconCol = enabled ? Color(255, 90, 94, 102) : Color(255, 195, 198, 204);
-        Pen navPen(iconCol, 1.8f);
+        Pen navPen(iconCol, 2.0f);
         navPen.SetStartCap(LineCapRound);
         navPen.SetEndCap(LineCapRound);
 
@@ -314,23 +372,23 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         REAL cy = (rc.top + rc.bottom) / 2.0f;
 
         if (id == IDC_BTN_BACK) {
-            g.DrawLine(&navPen, cx + 5.0f, cy, cx - 5.0f, cy);
-            g.DrawLine(&navPen, cx - 5.0f, cy, cx - 0.5f, cy - 4.5f);
-            g.DrawLine(&navPen, cx - 5.0f, cy, cx - 0.5f, cy + 4.5f);
+            g.DrawLine(&navPen, cx + 5.5f, cy, cx - 5.5f, cy);
+            g.DrawLine(&navPen, cx - 5.5f, cy, cx - 0.5f, cy - 5.0f);
+            g.DrawLine(&navPen, cx - 5.5f, cy, cx - 0.5f, cy + 5.0f);
         }
         else if (id == IDC_BTN_FORWARD) {
-            g.DrawLine(&navPen, cx - 5.0f, cy, cx + 5.0f, cy);
-            g.DrawLine(&navPen, cx + 5.0f, cy, cx + 0.5f, cy - 4.5f);
-            g.DrawLine(&navPen, cx + 5.0f, cy, cx + 0.5f, cy + 4.5f);
+            g.DrawLine(&navPen, cx - 5.5f, cy, cx + 5.5f, cy);
+            g.DrawLine(&navPen, cx + 5.5f, cy, cx + 0.5f, cy - 5.0f);
+            g.DrawLine(&navPen, cx + 5.5f, cy, cx + 0.5f, cy + 5.0f);
         }
         else if (id == IDC_BTN_RELOAD) {
-            RectF arcRect(cx - 5.5f, cy - 5.5f, 11.0f, 11.0f);
+            RectF arcRect(cx - 6.0f, cy - 6.0f, 12.0f, 12.0f);
             g.DrawArc(&navPen, arcRect, 45.0f, 275.0f);
 
             SolidBrush arrowBrush(iconCol);
-            PointF pt1(cx + 4.5f, cy - 5.5f);
-            PointF pt2(cx + 8.5f, cy - 2.5f);
-            PointF pt3(cx + 4.0f, cy - 1.0f);
+            PointF pt1(cx + 5.0f, cy - 6.0f);
+            PointF pt2(cx + 9.5f, cy - 2.5f);
+            PointF pt3(cx + 4.5f, cy - 1.0f);
             PointF pts[] = { pt1, pt2, pt3 };
             g.FillPolygon(&arrowBrush, pts, 3);
         }
@@ -343,25 +401,25 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 }
 
 // --------------------------------------------------------------------------
-// Tab Coordinates & Geometry
+// Tab Coordinates & Geometry (Bigger, spacious layout)
 // --------------------------------------------------------------------------
 RECT GetTabRect(int index, int clientWidth) {
     int x = 8 + index * (TAB_WIDTH + 4);
-    int y = 5;
+    int y = 6;
     return RECT{ x, y, x + TAB_WIDTH, y + TAB_BAR_HEIGHT };
 }
 
 RECT GetNewTabBtnRect(int clientWidth) {
     int x = 8 + (int)g_tabs.size() * (TAB_WIDTH + 4) + 6;
-    int y = 8;
-    return RECT{ x, y, x + 24, y + 24 };
+    int y = 10;
+    return RECT{ x, y, x + 28, y + 28 };
 }
 
 RECT GetTabCloseRect(const RECT& tabRc) {
-    int w = 18;
-    int h = 18;
+    int w = 20;
+    int h = 20;
     int right = tabRc.right - 10;
-    int top = tabRc.top + ((tabRc.bottom - tabRc.top - h) / 2) - 2;
+    int top = tabRc.top + ((tabRc.bottom - tabRc.top - h) / 2) - 3;
     return RECT{ right - w, top, right, top + h };
 }
 
@@ -377,8 +435,13 @@ void SwitchToTab(int index) {
     g_activeTabIndex = index;
     auto& activeTab = g_tabs[index];
 
-    if (g_hEdit && !activeTab->url.empty()) {
-        SetWindowTextW(g_hEdit, activeTab->url.c_str());
+    if (g_hEdit) {
+        if (activeTab->url.find(L"about:blank") == 0 || activeTab->url.empty() || activeTab->url.find(L"data:text/html") == 0) {
+            SetWindowTextW(g_hEdit, L"");
+        }
+        else {
+            SetWindowTextW(g_hEdit, activeTab->url.c_str());
+        }
     }
 
     RECT rc;
@@ -429,6 +492,10 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                 controller2->put_DefaultBackgroundColor(whiteColor);
                             }
 
+                            // Inject Inter font into every page loaded
+                            tab->webview->AddScriptToExecuteOnDocumentCreated(INJECTED_INTER_SCRIPT, nullptr);
+
+                            // Source change listener
                             tab->webview->add_SourceChanged(
                                 Callback<ICoreWebView2SourceChangedEventHandler>(
                                     [newIndex](ICoreWebView2* webview, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
@@ -437,7 +504,12 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                             if (newIndex < (int)g_tabs.size()) {
                                                 g_tabs[newIndex]->url = uri;
                                                 if (g_activeTabIndex == newIndex && g_hEdit) {
-                                                    SetWindowTextW(g_hEdit, uri);
+                                                    if (wcscmp(uri, L"about:blank") == 0 || wcsstr(uri, L"data:text/html") != nullptr) {
+                                                        SetWindowTextW(g_hEdit, L"");
+                                                    }
+                                                    else {
+                                                        SetWindowTextW(g_hEdit, uri);
+                                                    }
                                                 }
                                             }
                                             CoTaskMemFree(uri);
@@ -445,13 +517,14 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                         return S_OK;
                                     }).Get(), nullptr);
 
+                            // Document Title listener
                             tab->webview->add_DocumentTitleChanged(
                                 Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
                                     [hWnd, newIndex](ICoreWebView2* webview, IUnknown*) -> HRESULT {
                                         LPWSTR title = nullptr;
                                         if (SUCCEEDED(webview->get_DocumentTitle(&title)) && title) {
                                             if (newIndex < (int)g_tabs.size()) {
-                                                g_tabs[newIndex]->title = (wcslen(title) > 0) ? title : L"Google";
+                                                g_tabs[newIndex]->title = (wcslen(title) > 0) ? title : L"New Tab";
                                                 RECT topRc{ 0, 0, 2000, TAB_BAR_HEIGHT };
                                                 InvalidateRect(hWnd, &topRc, FALSE);
                                             }
@@ -461,7 +534,15 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                     }).Get(), nullptr);
 
                             tab->isLoaded = true;
-                            tab->webview->Navigate(initialUrl.c_str());
+
+                            // If blank or about:blank, navigate to beautiful centered HAZE homepage
+                            if (initialUrl.empty() || initialUrl == L"about:blank") {
+                                tab->title = L"New Tab";
+                                tab->webview->NavigateToString(g_homePageHtml.c_str());
+                            }
+                            else {
+                                tab->webview->Navigate(initialUrl.c_str());
+                            }
 
                             SwitchToTab(newIndex);
                             return S_OK;
@@ -474,12 +555,12 @@ void CloseTab(int index) {
     if (index < 0 || index >= (int)g_tabs.size()) return;
 
     if (g_tabs.size() == 1) {
-        g_tabs[0]->title = L"Google";
-        g_tabs[0]->url = L"https://www.google.com";
+        g_tabs[0]->title = L"New Tab";
+        g_tabs[0]->url = L"about:blank";
         if (g_tabs[0]->webview) {
-            g_tabs[0]->webview->Navigate(L"https://www.google.com");
+            g_tabs[0]->webview->NavigateToString(g_homePageHtml.c_str());
         }
-        if (g_hEdit) SetWindowTextW(g_hEdit, L"https://www.google.com");
+        if (g_hEdit) SetWindowTextW(g_hEdit, L"");
         RECT topRc{ 0, 0, 2000, TOP_BAR_HEIGHT };
         InvalidateRect(g_hWnd, &topRc, FALSE);
         return;
@@ -499,8 +580,8 @@ void CloseTab(int index) {
 // --------------------------------------------------------------------------
 // WinUI 3 Style Rounded Tray Context Menu Implementation (Anti-Aliased GDI+)
 // --------------------------------------------------------------------------
-constexpr int MENU_WIDTH = 220;
-constexpr int ITEM_HEIGHT = 34;
+constexpr int MENU_WIDTH = 230;
+constexpr int ITEM_HEIGHT = 36;
 constexpr int SEPARATOR_HEIGHT = 9;
 constexpr int MENU_PADDING_Y = 6;
 constexpr int MENU_PADDING_X = 6;
@@ -584,9 +665,14 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         Pen borderPen(Color(255, 226, 226, 229), 1.0f);
         g.DrawPath(&borderPen, &path);
 
-        FontFamily fontFamily(L"Segoe UI Variable Text");
-        Gdiplus::Font fontRegular(&fontFamily, 10.0f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font fontBold(&fontFamily, 10.0f, FontStyleBold, UnitPoint);
+        // Try Inter or Segoe UI Variable
+        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        if (pFontFamily->GetLastStatus() != Ok) {
+            delete pFontFamily;
+            pFontFamily = new FontFamily(L"Segoe UI Variable Text");
+        }
+        Gdiplus::Font fontRegular(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontBold(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
 
         StringFormat strFormat;
         strFormat.SetAlignment(StringAlignmentNear);
@@ -616,6 +702,8 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             RectF layoutRect((REAL)itemRc.left + 16.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 32.0f), (REAL)(itemRc.bottom - itemRc.top));
             g.DrawString(item.text.c_str(), -1, item.isHeader ? &fontBold : &fontRegular, layoutRect, &strFormat, &textBrush);
         }
+
+        delete pFontFamily;
 
         EndPaint(hWnd, &ps);
         return 0;
@@ -693,40 +781,45 @@ void SetupMenuItems() {
 }
 
 // --------------------------------------------------------------------------
-// Main Window Procedure (Smooth Anti-Aliased Rendering via GDI+)
+// Main Window Procedure
 // --------------------------------------------------------------------------
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
-        HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
+        if (!hFont) {
+            hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        }
 
         g_hBtnBack = CreateWindowExW(
             0, L"BUTTON", L"",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            12, TAB_BAR_HEIGHT + 8, 28, 28,
+            14, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_BACK, g_hInstance, nullptr);
         g_originalNavBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnBack, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         g_hBtnForward = CreateWindowExW(
             0, L"BUTTON", L"",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            44, TAB_BAR_HEIGHT + 8, 28, 28,
+            50, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_FORWARD, g_hInstance, nullptr);
         SetWindowLongPtr(g_hBtnForward, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         g_hBtnReload = CreateWindowExW(
             0, L"BUTTON", L"",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            76, TAB_BAR_HEIGHT + 8, 28, 28,
+            86, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_RELOAD, g_hInstance, nullptr);
         SetWindowLongPtr(g_hBtnReload, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         g_hEdit = CreateWindowExW(
             0, L"EDIT", L"",
             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_LEFT,
-            124, TAB_BAR_HEIGHT + 13, 400, 22,
+            140, TAB_BAR_HEIGHT + 14, 400, 26,
             hWnd, (HMENU)(INT_PTR)IDC_EDIT_URL, g_hInstance, nullptr);
 
         SendMessage(g_hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
@@ -736,7 +829,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g_hBtnSearch = CreateWindowExW(
             0, L"BUTTON", L"",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            550, TAB_BAR_HEIGHT + 10, 28, 28,
+            550, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SEARCH, g_hInstance, nullptr);
 
         g_originalSearchBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnSearch, GWLP_WNDPROC, (LONG_PTR)SearchButtonSubclassProc);
@@ -749,7 +842,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         wcscpy_s(g_nid.szTip, L"HAZE Browser");
         Shell_NotifyIconW(NIM_ADD, &g_nid);
 
-        CreateNewTab(L"https://www.google.com");
+        // Load HomePage HTML and start on Blank Home Page with centered logo
+        g_homePageHtml = LoadHomePageHtml();
+        CreateNewTab(L"about:blank");
         break;
     }
     case WM_COMMAND: {
@@ -808,9 +903,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         SolidBrush whiteBrush(Color(255, 255, 255, 255));
         g.FillRectangle(&whiteBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
 
-        FontFamily fontFamily(L"Segoe UI");
-        Gdiplus::Font tabFont(&fontFamily, 9.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font tabBoldFont(&fontFamily, 9.5f, FontStyleBold, UnitPoint);
+        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        if (pFontFamily->GetLastStatus() != Ok) {
+            delete pFontFamily;
+            pFontFamily = new FontFamily(L"Segoe UI");
+        }
+        Gdiplus::Font tabFont(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font tabBoldFont(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
 
         StringFormat strFormat;
         strFormat.SetAlignment(StringAlignmentNear);
@@ -818,13 +917,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         strFormat.SetTrimming(StringTrimmingEllipsisCharacter);
         strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
 
-        // 3. Render Anti-Aliased Chrome-style tabs
+        // 3. Render Anti-Aliased Chrome-style tabs (Bigger & spacious)
         for (size_t i = 0; i < g_tabs.size(); ++i) {
             RECT tabRc = GetTabRect((int)i, width);
             bool isActive = ((int)i == g_activeTabIndex);
             bool isHover = ((int)i == g_hoveredTabIndex);
 
-            REAL tRadius = 7.0f;
+            REAL tRadius = 8.0f;
             REAL tx = (REAL)tabRc.left;
             REAL ty = (REAL)tabRc.top;
             REAL tw = (REAL)(tabRc.right - tabRc.left);
@@ -844,49 +943,49 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 g.FillPath(&hoverBrush, &tabPath);
             }
 
-            // Draw crisp icon
+            // Draw crisp icon (20x20)
             if (g_hAppIcon) {
-                DrawIconEx(hdc, tabRc.left + 12, tabRc.top + 9, g_hAppIcon, 16, 16, 0, nullptr, DI_NORMAL);
+                DrawIconEx(hdc, tabRc.left + 14, tabRc.top + 10, g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
             // Draw crisp tab title
-            Color textCol = isActive ? Color(255, 32, 33, 36) : Color(255, 95, 99, 104);
+            Color textCol = isActive ? Color(255, 28, 30, 33) : Color(255, 90, 94, 100);
             SolidBrush textBrush(textCol);
-            RectF titleRect((REAL)tabRc.left + 34.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 62.0f), (REAL)(tabRc.bottom - tabRc.top));
+            RectF titleRect((REAL)tabRc.left + 42.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 72.0f), (REAL)(tabRc.bottom - tabRc.top));
             g.DrawString(g_tabs[i]->title.c_str(), -1, isActive ? &tabBoldFont : &tabFont, titleRect, &strFormat, &textBrush);
 
             // Draw tab close button vector "×"
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
-                SolidBrush closeBg(Color(255, 228, 231, 236));
+                SolidBrush closeBg(Color(255, 226, 229, 235));
                 g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
             }
 
-            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 95, 99, 104), 1.4f);
+            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 95, 99, 104), 1.6f);
             closePen.SetStartCap(LineCapRound);
             closePen.SetEndCap(LineCapRound);
 
             REAL cx = (closeRc.left + closeRc.right) / 2.0f;
             REAL cy = (closeRc.top + closeRc.bottom) / 2.0f;
-            REAL sz = 3.5f;
+            REAL sz = 4.0f;
             g.DrawLine(&closePen, cx - sz, cy - sz, cx + sz, cy + sz);
             g.DrawLine(&closePen, cx + sz, cy - sz, cx - sz, cy + sz);
         }
 
-        // Draw crisp "+" New Tab Button
+        // Draw crisp "+" New Tab Button (Spacious circle button)
         RECT newTabRc = GetNewTabBtnRect(width);
         if (g_isHoveringNewTab) {
             SolidBrush ntBrush(Color(255, 230, 233, 238));
             g.FillEllipse(&ntBrush, (REAL)newTabRc.left, (REAL)newTabRc.top, (REAL)(newTabRc.right - newTabRc.left), (REAL)(newTabRc.bottom - newTabRc.top));
         }
-        Pen plusPen(Color(255, 60, 64, 67), 1.6f);
+        Pen plusPen(Color(255, 60, 64, 67), 1.8f);
         plusPen.SetStartCap(LineCapRound);
         plusPen.SetEndCap(LineCapRound);
         REAL ntcx = (newTabRc.left + newTabRc.right) / 2.0f;
         REAL ntcy = (newTabRc.top + newTabRc.bottom) / 2.0f;
-        g.DrawLine(&plusPen, ntcx - 4.5f, ntcy, ntcx + 4.5f, ntcy);
-        g.DrawLine(&plusPen, ntcx, ntcy - 4.5f, ntcx, ntcy + 4.5f);
+        g.DrawLine(&plusPen, ntcx - 5.5f, ntcy, ntcx + 5.5f, ntcy);
+        g.DrawLine(&plusPen, ntcx, ntcy - 5.5f, ntcx, ntcy + 5.5f);
 
         // 4. Draw Pill-Shaped Rounded Search Bar with Smooth Anti-Aliasing
         RECT searchRc = GetSearchBarOuterRect(width);
@@ -910,6 +1009,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // 5. Divider Line separating top bar from WebView
         Pen divPen(Color(255, 228, 231, 236), 1.0f);
         g.DrawLine(&divPen, 0.0f, (REAL)TOP_BAR_HEIGHT - 1.0f, (REAL)width, (REAL)TOP_BAR_HEIGHT - 1.0f);
+
+        delete pFontFamily;
 
         EndPaint(hWnd, &ps);
         return 0;
@@ -978,7 +1079,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (pt.y < TAB_BAR_HEIGHT) {
             RECT ntRc = GetNewTabBtnRect(width);
             if (PtInRect(&ntRc, pt)) {
-                CreateNewTab(L"https://www.google.com");
+                CreateNewTab(L"about:blank");
                 return 0;
             }
 
@@ -1025,13 +1126,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     g_hInstance = hInstance;
 
-    // Enable modern Per-Monitor v2 DPI scaling
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     INITCOMMONCONTROLSEX icex{ sizeof(INITCOMMONCONTROLSEX), ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icex);
 
-    // Initialize GDI+
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, nullptr);
 
@@ -1078,7 +1177,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     g_hWnd = CreateWindowExW(
         0, L"HazeDesktopBrowserClass", APP_NAME,
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1100, 750,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1150, 780,
         nullptr, nullptr, hInstance, nullptr);
 
     if (!g_hWnd) {
