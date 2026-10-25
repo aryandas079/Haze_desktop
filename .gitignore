@@ -1,0 +1,40 @@
+# Visual Studio files and directories
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+ARM/
+ARM64/
+bld/
+[Bb]in/
+[Oo]bj/
+*.obj
+*.res
+*.tlog
+*.idb
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.exe
+*.dll
+*.lib
+
+# NuGet packages restored locally
+packages/
+*.nupkg
+Microsoft.Web.WebView2.*/
+Microsoft.Windows.ImplementationLibrary.*/
+
+# Temporary / Scratch files
+*.log
+*.tmp

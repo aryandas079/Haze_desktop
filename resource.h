@@ -1,0 +1,1 @@
+#define IDI_HAZE_ICON 101
