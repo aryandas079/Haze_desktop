@@ -43,6 +43,9 @@ constexpr int IDC_BTN_FORWARD = 104;
 constexpr int IDC_BTN_RELOAD = 105;
 constexpr int IDC_BTN_ENGINE = 106;
 
+constexpr int MIN_WINDOW_WIDTH = 1405;
+constexpr int MIN_WINDOW_HEIGHT = 850;
+
 constexpr const wchar_t* APP_VERSION = L"v1.0.0";
 constexpr const wchar_t* APP_NAME = L"HAZE";
 
@@ -1472,6 +1475,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         break;
     }
+    case WM_GETMINMAXINFO: {
+        LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
+        lpMMI->ptMinTrackSize.x = MIN_WINDOW_WIDTH;
+        lpMMI->ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+        return 0;
+    }
     case WM_CLOSE: {
         ShowWindow(hWnd, SW_HIDE);
         return 0;
@@ -1574,7 +1583,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     g_hWnd = CreateWindowExW(
         0, L"HazeDesktopBrowserClass", APP_NAME,
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1150, 780,
+        CW_USEDEFAULT, CW_USEDEFAULT, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT,
         nullptr, nullptr, hInstance, nullptr);
 
     if (!g_hWnd) {
