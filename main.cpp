@@ -495,6 +495,10 @@ void RestoreMainWindow(bool focusSearch = false) {
 
 LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+        return TRUE;
+
     case WM_KEYDOWN:
         if (wParam == VK_RETURN) {
             wchar_t buffer[2048] = { 0 };
@@ -507,6 +511,31 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             SendMessage(hWnd, EM_SETSEL, 0, -1);
             return 0;
         }
+        else if (wParam == VK_BACK && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            // Full control: Ctrl+Backspace deletes previous word without inserting unprintable 0x7F box glyph
+            DWORD start = 0, end = 0;
+            SendMessage(hWnd, EM_GETSEL, (WPARAM)&start, (LPARAM)&end);
+            if (start != end) {
+                SendMessage(hWnd, EM_REPLACESEL, TRUE, (LPARAM)L"");
+            }
+            else if (start > 0) {
+                int len = GetWindowTextLengthW(hWnd);
+                std::vector<wchar_t> text(len + 1, 0);
+                GetWindowTextW(hWnd, text.data(), len + 1);
+                int pos = (int)start;
+                // Skip trailing spaces before word
+                while (pos > 0 && iswspace(text[pos - 1])) {
+                    pos--;
+                }
+                // Skip previous word characters
+                while (pos > 0 && !iswspace(text[pos - 1])) {
+                    pos--;
+                }
+                SendMessage(hWnd, EM_SETSEL, pos, start);
+                SendMessage(hWnd, EM_REPLACESEL, TRUE, (LPARAM)L"");
+            }
+            return 0;
+        }
         else if (wParam == VK_ESCAPE) {
             // Restore current page URL or clear on Escape
             if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -517,8 +546,8 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         }
         break;
     case WM_CHAR:
-        // Prevent beep on Ctrl+A
-        if (wParam == 1) { // ASCII SOH / Ctrl+A
+        // Suppress Ctrl+A (1) and Ctrl+Backspace (127 / 0x7F) so they don't insert tofu/box characters or beep
+        if (wParam == 1 || wParam == 127 || wParam == 10) {
             return 0;
         }
         break;
@@ -533,6 +562,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     }
     case WM_SETFOCUS:
         g_isEditFocused = true;
+        ShowCaret(hWnd);
         if (g_hWnd) {
             RECT rc;
             GetClientRect(g_hWnd, &rc);
@@ -2359,7 +2389,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     g_hWnd = CreateWindowExW(
         0, L"HazeDesktopBrowserClass", APP_NAME,
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT,
         nullptr, nullptr, hInstance, nullptr);
 
