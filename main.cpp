@@ -413,10 +413,11 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = 126; // Clean spacing after Reload button (ends at x=118)
-    int endX = clientWidth - 24; // Clean, constant 24px right margin across all window resizes
-    if (endX - startX < 280) {
-        endX = startX + 280;
+    int omniWidth = (int)(clientWidth * 0.70f);
+    if (omniWidth < 280) {
+        omniWidth = 280;
     }
+    int endX = startX + omniWidth;
     int top = TAB_BAR_HEIGHT + (TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - SEARCH_BAR_HEIGHT) / 2;
     return RECT{ startX, top, endX, top + SEARCH_BAR_HEIGHT };
 }
@@ -437,20 +438,21 @@ void ResizeControls(int width, int height) {
     if (g_hBtnForward) SetWindowPos(g_hBtnForward, nullptr, 50, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     if (g_hBtnReload)  SetWindowPos(g_hBtnReload, nullptr, 86, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Search Bar layout
+    // Search Bar layout (always takes 70% of browser window width)
     RECT sb = GetSearchBarOuterRect(width);
 
-    // Magnifying glass icon inside pill
-    int engineBtnSize = 28;
+    // Engine selector button with icon + dropdown caret inside pill
+    int engineBtnW = 42;
+    int engineBtnH = 28;
     int engineBtnX = sb.left + 8;
-    int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnSize) / 2;
+    int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnH) / 2;
 
     if (g_hBtnEngine) {
-        SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnSize, engineBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    // Edit box — tall enough for 16pt text, gap after magnifying glass
-    int editX = engineBtnX + engineBtnSize + 6;
+    // Edit box — tall enough for 16pt text, gap after engine selector
+    int editX = engineBtnX + engineBtnW + 8;
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
@@ -464,9 +466,13 @@ void ResizeControls(int width, int height) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
 
-    // Strikethrough buttons removed: hide settings button from toolbar
+    // Dropdown for settings and all kept at the end of the address bar
+    int settingsBtnSize = 32;
+    int settingsBtnX = sb.right + 12;
+    int settingsBtnY = navY;
     if (g_hBtnSettings) {
-        ShowWindow(g_hBtnSettings, SW_HIDE);
+        SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_SHOWWINDOW);
+        ShowWindow(g_hBtnSettings, SW_SHOW);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -754,24 +760,32 @@ LRESULT CALLBACK EngineButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             g.FillPath(&hoverBrush, &btnPath);
         }
 
-        // Draw crisp vector magnifying glass matching Edge search icon in address bar
-        REAL cx = (rc.right - rc.left) / 2.0f;
-        REAL cy = (rc.bottom - rc.top) / 2.0f;
-        Color iconCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 115, 108, 96);
-        Pen iconPen(iconCol, 1.6f);
-        iconPen.SetStartCap(LineCapRound);
-        iconPen.SetEndCap(LineCapRound);
+        // Draw Selected Engine Icon
+        if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
+            auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
+            if (pBmp) {
+                REAL iconSize = 20.0f;
+                REAL iconX = 4.0f;
+                REAL iconY = ((rc.bottom - rc.top) - iconSize) / 2.0f;
+                g.DrawImage(pBmp, iconX, iconY, iconSize, iconSize);
+            }
+        }
 
-        // Circular lens (radius 4.5f) centered at (cx - 1.5f, cy - 1.5f)
-        REAL radius = 4.5f;
-        g.DrawEllipse(&iconPen, cx - 1.5f - radius, cy - 1.5f - radius, radius * 2.0f, radius * 2.0f);
+        // Draw small dropdown caret to select the search engine
+        Color caretCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 115, 108, 96);
+        Pen caretPen(caretCol, 1.8f);
+        caretPen.SetStartCap(LineCapRound);
+        caretPen.SetEndCap(LineCapRound);
+        caretPen.SetLineJoin(LineJoinRound);
 
-        // Handle at 45 degrees extending down-right
-        REAL hx1 = cx - 1.5f + radius * 0.7071f;
-        REAL hy1 = cy - 1.5f + radius * 0.7071f;
-        REAL hx2 = hx1 + 4.5f;
-        REAL hy2 = hy1 + 4.5f;
-        g.DrawLine(&iconPen, hx1, hy1, hx2, hy2);
+        REAL caretX = (REAL)rc.right - 9.0f;
+        REAL caretY = (rc.top + rc.bottom) / 2.0f;
+        PointF caretPts[] = {
+            PointF(caretX - 3.2f, caretY - 1.8f),
+            PointF(caretX, caretY + 1.8f),
+            PointF(caretX + 3.2f, caretY - 1.8f)
+        };
+        g.DrawLines(&caretPen, caretPts, 3);
 
         if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
         return 0;
@@ -1813,11 +1827,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             550, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SEARCH, g_hInstance, nullptr);
 
-        // Chevron Settings Dropdown Button (hidden from toolbar per modern layout)
+        // Chevron Settings Dropdown Button at the end of the address bar
         g_hBtnSettings = CreateWindowExW(
             0, L"HazeSettingsBtnClass", L"",
-            WS_CHILD,
-            586, TAB_BAR_HEIGHT + 11, 28, 32,
+            WS_CHILD | WS_VISIBLE,
+            586, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SETTINGS, g_hInstance, nullptr);
 
         g_nid.hWnd = hWnd;
