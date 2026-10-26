@@ -29,8 +29,8 @@ using namespace Gdiplus;
 constexpr UINT WM_TRAYICON = WM_USER + 100;
 
 // Spacious heights and layout
-constexpr int TOP_BAR_HEIGHT = 112;
-constexpr int TAB_BAR_HEIGHT = 48;
+constexpr int TOP_BAR_HEIGHT = 120;
+constexpr int TAB_BAR_HEIGHT = 54;
 constexpr int TAB_WIDTH = 260;
 
 constexpr int SEARCH_BAR_HEIGHT = 48;
@@ -413,9 +413,8 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = NAV_BUTTONS_WIDTH;
-    // Keep address bar proportional - not overly stretched on wide/fullscreen monitors
-    // Center it nicely with a max width of ~820px or generous right margin
-    int maxOmniWidth = 840;
+    // Keep address bar proportional - enlarged to extend generously across the toolbar
+    int maxOmniWidth = 1150;
     int availableWidth = clientWidth - startX - 80;
     int omniWidth = (availableWidth > maxOmniWidth) ? maxOmniWidth : availableWidth;
     if (omniWidth < 280) omniWidth = 280;
@@ -801,19 +800,21 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy + wing);
         }
         else if (id == IDC_BTN_RELOAD) {
-            // Modern rounded circular arrow matching reference image: ↻
+            // Modern rounded circular arrow matching standard browser reload icon: ↻
             REAL radius = 6.0f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-            g.DrawArc(&navPen, arcRect, -30.0f, 290.0f);
+            // Draw smooth 290 degree clockwise arc starting from top-right (35 deg)
+            g.DrawArc(&navPen, arcRect, 35.0f, 290.0f);
 
-            // Arrow head at arc termination (~260 degrees / upper right)
-            REAL tipX = cx + radius * 0.94f;
-            REAL tipY = cy - radius * 0.35f;
-            REAL wing = 4.2f;
+            // Arc ends at 325 degrees (approx cx + 4.9f, cy - 3.4f)
+            // Clockwise arrowhead pointing inward/downwards
+            REAL tipX = cx + 4.9f;
+            REAL tipY = cy - 3.4f;
 
-            // Inward-pointing arrowhead wings
-            g.DrawLine(&navPen, tipX, tipY, tipX - wing, tipY - 0.5f);
-            g.DrawLine(&navPen, tipX, tipY, tipX - 0.8f, tipY + wing);
+            GraphicsPath arrowHead;
+            arrowHead.AddLine(tipX - 1.0f, tipY - 5.0f, tipX + 0.5f, tipY + 0.5f);
+            arrowHead.AddLine(tipX + 0.5f, tipY + 0.5f, tipX + 5.5f, tipY + 0.5f);
+            g.DrawPath(&navPen, &arrowHead);
         }
 
         EndPaint(hWnd, &ps);
@@ -857,12 +858,12 @@ RECT GetCaptionBtnRect(CaptionButtonType type, int clientWidth) {
 RECT GetTabRect(int index, int clientWidth) {
     int x = 12 + index * (TAB_WIDTH + 8);
     int y = 8;
-    return RECT{ x, y, x + TAB_WIDTH, TAB_BAR_HEIGHT };
+    return RECT{ x, y, x + TAB_WIDTH, TAB_BAR_HEIGHT - 6 };
 }
 
 RECT GetNewTabBtnRect(int clientWidth) {
     int x = 12 + (int)g_tabs.size() * (TAB_WIDTH + 8) + 16;
-    int y = 10;
+    int y = 13;
     return RECT{ x, y, x + 28, y + 28 };
 }
 
