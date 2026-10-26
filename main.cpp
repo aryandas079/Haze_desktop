@@ -1044,6 +1044,13 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                                     g_selectedEngineIndex = idx;
                                                     UpdateOmniboxCueBanner();
                                                     if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
+                                                    // Broadcast engine selection to all open tabs
+                                                    std::wstring engMsg = L"{\"type\":\"sync_state\",\"engine\":" + std::to_wstring(g_selectedEngineIndex) + L"}";
+                                                    for (auto& t : g_tabs) {
+                                                        if (t->webview) {
+                                                            t->webview->PostWebMessageAsJson(engMsg.c_str());
+                                                        }
+                                                    }
                                                 }
                                             }
 
@@ -1550,6 +1557,13 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
             if (g_hEdit) {
                 SetFocus(g_hEdit);
                 SendMessage(g_hEdit, EM_SETSEL, 0, -1);
+            }
+            // Broadcast engine selection to all open tabs (homepage and settings)
+            std::wstring engMsg = L"{\"type\":\"sync_state\",\"engine\":" + std::to_wstring(g_selectedEngineIndex) + L"}";
+            for (auto& t : g_tabs) {
+                if (t->webview) {
+                    t->webview->PostWebMessageAsJson(engMsg.c_str());
+                }
             }
         }
         return 0;
