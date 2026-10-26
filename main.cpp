@@ -1379,9 +1379,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        // 1. Tab strip background (Sage warm olive #E9E4BE / RGB(233, 228, 190))
-        SolidBrush stripBrush(Color(255, 233, 228, 190));
-        g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
+        WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
+        GetWindowPlacement(hWnd, &wp);
+        bool isMaximized = (wp.showCmd == SW_SHOWMAXIMIZED);
+
+        // 1. Tab strip background
+        // In full screen / maximized mode, use a richer, deeper sage-olive tone with subtle gradient and bottom border
+        // so the tabs and title strip immediately catch the eye and don't blend into the window top.
+        if (isMaximized) {
+            // Elegant deeper olive sage #D8D29F -> #CBC48A gradient
+            LinearGradientBrush maxStripBrush(
+                Point(0, 0), Point(0, TAB_BAR_HEIGHT),
+                Color(255, 218, 212, 160),
+                Color(255, 203, 196, 140)
+            );
+            g.FillRectangle(&maxStripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
+
+            // Crisp separator line between tab strip and navigation bar in fullscreen
+            Pen stripBorderPen(Color(255, 185, 178, 120), 1.0f);
+            g.DrawLine(&stripBorderPen, 0.0f, (REAL)TAB_BAR_HEIGHT - 1.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT - 1.0f);
+        }
+        else {
+            SolidBrush stripBrush(Color(255, 233, 228, 190));
+            g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
+        }
 
         // 2. Toolbar & Navigation row background (Cream #FEF9EB / RGB(254, 249, 235))
         SolidBrush toolbarBrush(Color(255, 254, 249, 235));
@@ -1420,10 +1441,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             tabPath.CloseFigure();
 
             if (isActive) {
+                // Subtle top highlight border on the active tab in fullscreen to pop out cleanly
+                if (isMaximized) {
+                    Pen activeBorder(Color(255, 175, 168, 115), 1.0f);
+                    g.DrawPath(&activeBorder, &tabPath);
+                }
                 g.FillPath(&toolbarBrush, &tabPath);
             }
             else if (isHover) {
-                SolidBrush hoverBrush(Color(255, 242, 238, 208));
+                SolidBrush hoverBrush(isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
                 g.FillPath(&hoverBrush, &tabPath);
             }
 
@@ -1514,13 +1540,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         Pen maxPen(Color(255, 81, 79, 66), 1.3f);
         REAL maxcx = (maxRc.left + maxRc.right) / 2.0f;
         REAL maxcy = (maxRc.top + maxRc.bottom) / 2.0f;
-        WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
-        GetWindowPlacement(hWnd, &wp);
-        bool isMaximized = (wp.showCmd == SW_SHOWMAXIMIZED);
         if (isMaximized) {
             // Restore symbol (two overlapping squares)
             g.DrawRectangle(&maxPen, maxcx - 3.5f, maxcy - 5.5f, 8.0f, 8.0f);
-            SolidBrush fillBg(Color(255, 233, 228, 190));
+            SolidBrush fillBg(Color(255, 218, 212, 160));
             g.FillRectangle(&fillBg, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
             g.DrawRectangle(&maxPen, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
         } else {
