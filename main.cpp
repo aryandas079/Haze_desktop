@@ -50,21 +50,15 @@ constexpr int MIN_WINDOW_HEIGHT = 850;
 constexpr const wchar_t* APP_VERSION = L"v1.0.0";
 constexpr const wchar_t* APP_NAME = L"HAZE";
 
-// Injected CSS to enforce 'Inter' as font across websites
+// Injected CSS to enforce clean modern font across websites
 const wchar_t* INJECTED_INTER_SCRIPT = LR"(
 (function() {
-  if (document.getElementById('__haze_inter_font__')) return;
-  const link = document.createElement('link');
-  link.id = '__haze_inter_font__';
-  link.rel = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap';
-  document.head.appendChild(link);
-
+  if (document.getElementById('__haze_font_style__')) return;
   const style = document.createElement('style');
-  style.id = '__haze_inter_style__';
+  style.id = '__haze_font_style__';
   style.textContent = `
     * {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      font-family: 'Google Sans', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif !important;
     }
   `;
   document.head.appendChild(style);
@@ -175,6 +169,25 @@ void SwitchToTab(int index);
 void CreateNewTab(const std::wstring& initialUrl = L"about:blank");
 void CloseTab(int index);
 void UpdateOmniboxCueBanner();
+
+const wchar_t* GetModernFontFamilyName() {
+    static const wchar_t* s_fontName = nullptr;
+    if (!s_fontName) {
+        // Try Google Sans or Segoe UI Variable Text (Windows 11 modern Chrome font), fallback to Segoe UI
+        FontFamily testGoogleSans(L"Google Sans");
+        if (testGoogleSans.GetLastStatus() == Ok) {
+            s_fontName = L"Google Sans";
+        } else {
+            FontFamily testSegoeVar(L"Segoe UI Variable Text");
+            if (testSegoeVar.GetLastStatus() == Ok) {
+                s_fontName = L"Segoe UI Variable Text";
+            } else {
+                s_fontName = L"Segoe UI";
+            }
+        }
+    }
+    return s_fontName;
+}
 
 void AddRoundedRect(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) {
     REAL d = r * 2.0f;
@@ -1247,7 +1260,7 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         Pen borderPen(borderCol, 1.0f);
         g.DrawPath(&borderPen, &path);
 
-        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
             pFontFamily = new FontFamily(L"Segoe UI");
@@ -1421,14 +1434,14 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         Pen borderPen(Color(255, 222, 224, 228), 1.2f);
         g.DrawPath(&borderPen, &path);
 
-        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
             pFontFamily = new FontFamily(L"Segoe UI");
         }
-        Gdiplus::Font headerFont(pFontFamily, 10.0f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font itemFont(pFontFamily, 11.0f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font itemSelectedFont(pFontFamily, 11.0f, FontStyleBold, UnitPoint);
+        Gdiplus::Font headerFont(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font itemFont(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font itemSelectedFont(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
 
         // Draw "Search with:" Header
         SolidBrush headerBrush(Color(255, 100, 103, 107));
@@ -1608,11 +1621,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CREATE: {
         g_hWnd = hWnd;
-        HFONT hFont = CreateFontW(19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        const wchar_t* primaryFont = GetModernFontFamilyName();
+        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
         if (!hFont) {
-            hFont = CreateFontW(19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
@@ -1783,12 +1797,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         SolidBrush toolbarBrush(toolbarCol);
         g.FillRectangle(&toolbarBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
 
-        FontFamily* pFontFamily = new FontFamily(L"Inter");
+        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
             pFontFamily = new FontFamily(L"Segoe UI");
         }
-        Gdiplus::Font tabFont(pFontFamily, 10.0f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font tabFont(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
 
         StringFormat strFormat;
         strFormat.SetAlignment(StringAlignmentNear);
