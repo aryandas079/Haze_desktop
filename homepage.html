@@ -22,6 +22,10 @@ html, body {
   justify-content: center;
   overflow: hidden;
   user-select: none;
+  transition: background-color 0.25s ease;
+}
+body.dark-mode {
+  background-color: #1A1A1E;
 }
 .center-container {
   display: flex;
@@ -55,7 +59,7 @@ html, body {
 
 /* Center Search Bar matching Omnibox styling */
 .search-wrapper {
-  margin-top: 36px;
+  margin-top: 16px;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -71,11 +75,20 @@ html, body {
   align-items: center;
   padding: 0 12px 0 20px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background-color 0.25s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+body.dark-mode .search-bar {
+  background-color: #282832;
+  border-color: #3E3E4C;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
 }
 .search-bar:focus-within {
   border-color: #CDA59B;
   box-shadow: 0 6px 20px rgba(205, 165, 155, 0.22);
+}
+body.dark-mode .search-bar:focus-within {
+  border-color: #B0A738;
+  box-shadow: 0 6px 20px rgba(176, 167, 56, 0.25);
 }
 .search-icon {
   width: 20px;
@@ -87,6 +100,9 @@ html, body {
   color: #6E695F;
   flex-shrink: 0;
 }
+body.dark-mode .search-icon {
+  color: #A0A0B0;
+}
 .search-icon svg {
   width: 18px;
   height: 18px;
@@ -95,6 +111,9 @@ html, body {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+body.dark-mode .search-icon svg {
+  stroke: #A0A0B0;
 }
 .search-input {
   flex: 1;
@@ -107,9 +126,15 @@ html, body {
   padding: 0;
   min-width: 0;
 }
+body.dark-mode .search-input {
+  color: #EDEDF0;
+}
 .search-input::placeholder {
   color: #8C867A;
   font-weight: 400;
+}
+body.dark-mode .search-input::placeholder {
+  color: #7D7D8D;
 }
 
 /* Action Buttons inside Search Bar */
@@ -131,6 +156,9 @@ html, body {
 .action-btn:hover {
   background-color: #EBE0CA;
 }
+body.dark-mode .action-btn:hover {
+  background-color: #383845;
+}
 .action-btn:active {
   transform: scale(0.94);
 }
@@ -140,12 +168,15 @@ html, body {
   fill: #6E695F;
   transition: fill 0.2s ease;
 }
+body.dark-mode .mic-btn svg {
+  fill: #A0A0B0;
+}
 .mic-btn.listening {
   background-color: #FFDFDB !important;
   animation: pulse 1.4s infinite;
 }
 .mic-btn.listening svg {
-  fill: #D93025;
+  fill: #D93025 !important;
 }
 .submit-btn svg {
   width: 18px;
@@ -155,6 +186,9 @@ html, body {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+body.dark-mode .submit-btn svg {
+  stroke: #A0A0B0;
 }
 
 /* Voice Recognition Feedback Toast */
@@ -318,6 +352,23 @@ if (SpeechRecognition) {
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => searchInput.focus(), 150);
 });
+
+// Sync theme with browser settings
+if (window.chrome && window.chrome.webview) {
+  window.chrome.webview.addEventListener('message', (event) => {
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      if (data.type === 'sync_state' && data.theme) {
+        if (data.theme === 'dark') {
+          document.body.classList.add('dark-mode');
+        } else {
+          document.body.classList.remove('dark-mode');
+        }
+      }
+    } catch (e) {}
+  });
+  window.chrome.webview.postMessage(JSON.stringify({ type: 'homepage_ready' }));
+}
 </script>
 </body>
 </html>

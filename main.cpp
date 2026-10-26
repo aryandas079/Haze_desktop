@@ -134,6 +134,12 @@ bool g_isEditFocused = false;
 
 std::wstring g_homePageHtml;
 std::wstring g_homePageUrl;
+std::wstring g_settingsPageUrl;
+bool g_isDarkMode = false;
+static HBRUSH s_editBrushLight = nullptr;
+static HBRUSH s_editBrushDark = nullptr;
+static HBRUSH s_pillBrushLight = nullptr;
+static HBRUSH s_pillBrushDark = nullptr;
 
 // Custom Menu Items
 enum MenuAction {
@@ -239,6 +245,35 @@ std::wstring LoadHomePageHtml() {
     return L"<html><body style='background:#fff;'></body></html>";
 }
 
+void InitSettingsPageUrl() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir(exePath);
+    size_t pos = dir.find_last_of(L"\\/");
+    std::wstring basePath = (pos != std::wstring::npos) ? dir.substr(0, pos + 1) : L"";
+
+    std::wstring possibleFiles[] = {
+        basePath + L"settings.html",
+        basePath + L"..\\settings.html",
+        basePath + L"..\\..\\settings.html",
+        L"d:\\Projects\\Haze_desktop\\Haze_desktop\\settings.html"
+    };
+
+    for (const auto& path : possibleFiles) {
+        DWORD dwAttrib = GetFileAttributesW(path.c_str());
+        if (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+            wchar_t fullPath[MAX_PATH] = { 0 };
+            GetFullPathNameW(path.c_str(), MAX_PATH, fullPath, nullptr);
+            std::wstring fileUri = fullPath;
+            for (auto& ch : fileUri) {
+                if (ch == L'\\') ch = L'/';
+            }
+            g_settingsPageUrl = L"file:///" + fileUri;
+            return;
+        }
+    }
+}
+
 bool IsLikelyUrl(const std::wstring& str) {
     if (str.find(L' ') != std::wstring::npos) return false;
 
@@ -325,7 +360,21 @@ void NavigateToInput(const std::wstring& input) {
     trimmed = trimmed.substr(first, (last - first + 1));
 
     std::wstring url;
-    if (trimmed.find(L"http://") == 0 || trimmed.find(L"https://") == 0 ||
+    if (trimmed == L"haze://settings" || trimmed == L"about:settings" || trimmed == L"edge://settings" || trimmed == L"chrome://settings") {
+        if (!g_settingsPageUrl.empty()) {
+            url = g_settingsPageUrl;
+        } else {
+            url = L"about:blank";
+        }
+    }
+    else if (trimmed == L"haze://home" || trimmed == L"about:home" || trimmed == L"about:newtab") {
+        if (!g_homePageUrl.empty()) {
+            url = g_homePageUrl;
+        } else {
+            url = L"about:blank";
+        }
+    }
+    else if (trimmed.find(L"http://") == 0 || trimmed.find(L"https://") == 0 ||
         trimmed.find(L"file:///") == 0 || trimmed.find(L"edge://") == 0 ||
         trimmed.find(L"about:") == 0) {
         url = trimmed;
@@ -464,17 +513,18 @@ LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam,
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
-        // Fill background with omnibox pill warm beige
-        SolidBrush bgBrush(Color(255, 254, 249, 235));
+        // Fill background with omnibox pill warm beige / dark grey
+        Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         if (g_isSettingsBtnHovered) {
-            SolidBrush hoverBrush(Color(255, 239, 230, 129));
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 239, 230, 129));
             g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
         // Draw chevron down icon matching the uploaded image: ∨
-        Pen chevronPen(Color(255, 60, 58, 54), 1.8f);
+        Pen chevronPen(g_isDarkMode ? Color(255, 200, 200, 215) : Color(255, 60, 58, 54), 1.8f);
         chevronPen.SetStartCap(LineCapRound);
         chevronPen.SetEndCap(LineCapRound);
         chevronPen.SetLineJoin(LineJoinRound);
@@ -588,14 +638,15 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
-        // Fill background with omnibox pill warm beige
-        SolidBrush bgBrush(Color(255, 254, 249, 235));
+        // Fill background with omnibox pill warm beige / dark grey
+        Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
             AddRoundedRect(btnPath, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top), 8.0f);
-            SolidBrush hoverBrush(Color(255, 239, 230, 129));
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 239, 230, 129));
             g.FillPath(&hoverBrush, &btnPath);
         }
 
@@ -664,8 +715,9 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
-        // Fill background with toolbar cream color
-        SolidBrush bgBrush(Color(255, 254, 249, 235));
+        // Fill background with toolbar cream color / dark grey
+        Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
+        SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         int id = (int)GetWindowLongPtr(hWnd, GWLP_ID);
@@ -683,11 +735,16 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         // Circular hover pill highlight if enabled
         bool isHovered = (s_hoveredBtn == hWnd);
         if (enabled && isHovered) {
-            SolidBrush hoverBrush(Color(255, 238, 232, 210));
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 52, 52, 62) : Color(255, 238, 232, 210));
             g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
-        Color iconCol = enabled ? Color(255, 60, 58, 54) : Color(255, 185, 182, 160);
+        Color iconCol;
+        if (g_isDarkMode) {
+            iconCol = enabled ? Color(255, 220, 220, 230) : Color(255, 90, 90, 105);
+        } else {
+            iconCol = enabled ? Color(255, 60, 58, 54) : Color(255, 185, 182, 160);
+        }
         Pen navPen(iconCol, 1.8f);
         navPen.SetStartCap(LineCapRound);
         navPen.SetEndCap(LineCapRound);
@@ -808,6 +865,9 @@ void SwitchToTab(int index) {
             (!g_homePageUrl.empty() && activeTab->url.find(g_homePageUrl) == 0)) {
             SetWindowTextW(g_hEdit, L"");
         }
+        else if (!g_settingsPageUrl.empty() && activeTab->url.find(g_settingsPageUrl) == 0) {
+            SetWindowTextW(g_hEdit, L"haze://settings");
+        }
         else {
             SetWindowTextW(g_hEdit, activeTab->url.c_str());
         }
@@ -863,16 +923,29 @@ void CreateNewTab(const std::wstring& initialUrl) {
 
                             tab->webview->AddScriptToExecuteOnDocumentCreated(INJECTED_INTER_SCRIPT, nullptr);
 
-                            // Handle WebMessages from the center homepage search bar
+                            // Auto-grant microphone permissions so Web Speech and voice search work smoothly
+                            tab->webview->add_PermissionRequested(
+                                Callback<ICoreWebView2PermissionRequestedEventHandler>(
+                                    [](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) -> HRESULT {
+                                        COREWEBVIEW2_PERMISSION_KIND kind;
+                                        if (SUCCEEDED(args->get_PermissionKind(&kind))) {
+                                            if (kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE) {
+                                                args->put_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
+                                            }
+                                        }
+                                        return S_OK;
+                                    }).Get(), nullptr);
+
+                            // Handle WebMessages from the center homepage search bar and settings page
                             tab->webview->add_WebMessageReceived(
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                                    [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                    [](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         LPWSTR messageRaw = nullptr;
                                         if (SUCCEEDED(args->get_WebMessageAsJson(&messageRaw)) && messageRaw) {
                                             std::wstring jsonStr = messageRaw;
                                             CoTaskMemFree(messageRaw);
 
-                                            // Simple extraction of "query"
+                                            // Search query from homepage
                                             size_t qPos = jsonStr.find(L"\"query\":");
                                             if (qPos != std::wstring::npos) {
                                                 size_t start = jsonStr.find(L"\"", qPos + 8);
@@ -883,6 +956,50 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                                         NavigateToInput(query);
                                                     }
                                                 }
+                                            }
+
+                                            // Theme selection from settings page: "set_theme"
+                                            if (jsonStr.find(L"\"set_theme\"") != std::wstring::npos) {
+                                                bool dark = (jsonStr.find(L"\"dark\"") != std::wstring::npos);
+                                                if (g_isDarkMode != dark) {
+                                                    g_isDarkMode = dark;
+                                                    if (g_hWnd) {
+                                                        InvalidateRect(g_hWnd, nullptr, TRUE);
+                                                        if (g_hBtnBack) InvalidateRect(g_hBtnBack, nullptr, TRUE);
+                                                        if (g_hBtnForward) InvalidateRect(g_hBtnForward, nullptr, TRUE);
+                                                        if (g_hBtnReload) InvalidateRect(g_hBtnReload, nullptr, TRUE);
+                                                        if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
+                                                        if (g_hBtnSettings) InvalidateRect(g_hBtnSettings, nullptr, TRUE);
+                                                        if (g_hEdit) InvalidateRect(g_hEdit, nullptr, TRUE);
+                                                    }
+                                                    // Broadcast theme change to all open tabs
+                                                    std::wstring msg = L"{\"type\":\"sync_state\",\"theme\":\"" + std::wstring(dark ? L"dark" : L"light") + L"\"}";
+                                                    for (auto& t : g_tabs) {
+                                                        if (t->webview) {
+                                                            t->webview->PostWebMessageAsJson(msg.c_str());
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Engine selection from settings page: "set_engine"
+                                            size_t engPos = jsonStr.find(L"\"index\":");
+                                            if (engPos != std::wstring::npos && jsonStr.find(L"\"set_engine\"") != std::wstring::npos) {
+                                                int idx = _wtoi(jsonStr.c_str() + engPos + 8);
+                                                if (idx >= 0 && idx < (int)g_searchEngines.size()) {
+                                                    g_selectedEngineIndex = idx;
+                                                    UpdateOmniboxCueBanner();
+                                                    if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
+                                                }
+                                            }
+
+                                            // Page ready handshake: sync theme and engine
+                                            if (jsonStr.find(L"\"settings_ready\"") != std::wstring::npos ||
+                                                jsonStr.find(L"\"homepage_ready\"") != std::wstring::npos) {
+                                                std::wstring syncMsg = L"{\"type\":\"sync_state\",\"theme\":\"" + 
+                                                    std::wstring(g_isDarkMode ? L"dark" : L"light") + 
+                                                    L"\",\"engine\":" + std::to_wstring(g_selectedEngineIndex) + L"}";
+                                                sender->PostWebMessageAsJson(syncMsg.c_str());
                                             }
                                         }
                                         return S_OK;
@@ -900,6 +1017,9 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                                         wcsstr(uri, L"data:text/html") != nullptr ||
                                                         (!g_homePageUrl.empty() && wcsstr(uri, g_homePageUrl.c_str()) != nullptr)) {
                                                         SetWindowTextW(g_hEdit, L"");
+                                                    }
+                                                    else if (!g_settingsPageUrl.empty() && wcsstr(uri, g_settingsPageUrl.c_str()) != nullptr) {
+                                                        SetWindowTextW(g_hEdit, L"haze://settings");
                                                     }
                                                     else {
                                                         SetWindowTextW(g_hEdit, uri);
@@ -1031,7 +1151,11 @@ void ExecuteMenuAction(MenuAction action) {
     case ACTION_SETTINGS:
         RestoreMainWindow(false);
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://settings");
+            if (!g_settingsPageUrl.empty()) {
+                g_tabs[g_activeTabIndex]->webview->Navigate(g_settingsPageUrl.c_str());
+            } else {
+                g_tabs[g_activeTabIndex]->webview->Navigate(L"haze://settings");
+            }
         }
         break;
     case ACTION_QUIT:
@@ -1461,6 +1585,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         Shell_NotifyIconW(NIM_ADD, &g_nid);
 
         g_homePageHtml = LoadHomePageHtml();
+        InitSettingsPageUrl();
         CreateNewTab(L"about:blank");
         break;
     }
@@ -1502,19 +1627,36 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_CTLCOLOREDIT: {
         HDC hdc = (HDC)wParam;
-        SetTextColor(hdc, RGB(60, 58, 54));
-        SetBkColor(hdc, RGB(254, 249, 235));
-        static HBRUSH s_editBrush = CreateSolidBrush(RGB(254, 249, 235));
-        return (LRESULT)s_editBrush;
+        if (g_isDarkMode) {
+            SetTextColor(hdc, RGB(237, 237, 240));
+            SetBkColor(hdc, RGB(40, 40, 50));
+            if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(40, 40, 50));
+            return (LRESULT)s_editBrushDark;
+        } else {
+            SetTextColor(hdc, RGB(60, 58, 54));
+            SetBkColor(hdc, RGB(254, 249, 235));
+            if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(254, 249, 235));
+            return (LRESULT)s_editBrushLight;
+        }
     }
     case WM_CTLCOLORBTN: {
         HWND hBtn = (HWND)lParam;
         if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch || hBtn == g_hBtnSettings) {
-            static HBRUSH s_pillBrush = CreateSolidBrush(RGB(254, 249, 235));
-            return (LRESULT)s_pillBrush;
+            if (g_isDarkMode) {
+                if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(40, 40, 50));
+                return (LRESULT)s_pillBrushDark;
+            } else {
+                if (!s_pillBrushLight) s_pillBrushLight = CreateSolidBrush(RGB(254, 249, 235));
+                return (LRESULT)s_pillBrushLight;
+            }
         }
-        static HBRUSH s_tbBrush = CreateSolidBrush(RGB(254, 249, 235));
-        return (LRESULT)s_tbBrush;
+        if (g_isDarkMode) {
+            static HBRUSH s_tbBrushDark = CreateSolidBrush(RGB(34, 34, 40));
+            return (LRESULT)s_tbBrushDark;
+        } else {
+            static HBRUSH s_tbBrushLight = CreateSolidBrush(RGB(254, 249, 235));
+            return (LRESULT)s_tbBrushLight;
+        }
     }
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -1533,11 +1675,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         bool isMaximized = (wp.showCmd == SW_SHOWMAXIMIZED);
 
         // 1. Tab strip background
-        SolidBrush stripBrush(Color(255, 233, 228, 190));
+        Color stripCol = g_isDarkMode ? Color(255, 24, 24, 28) : Color(255, 233, 228, 190);
+        SolidBrush stripBrush(stripCol);
         g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
 
-        // 2. Toolbar & Navigation row background (Cream #FEF9EB / RGB(254, 249, 235))
-        SolidBrush toolbarBrush(Color(255, 254, 249, 235));
+        // 2. Toolbar & Navigation row background (Cream #FEF9EB / Dark #222228)
+        Color toolbarCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
+        SolidBrush toolbarBrush(toolbarCol);
         g.FillRectangle(&toolbarBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
 
         FontFamily* pFontFamily = new FontFamily(L"Inter");
@@ -1575,7 +1719,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             inPath.CloseFigure();
 
             if (isHover) {
-                SolidBrush hoverBrush(isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
+                Color inHoverCol = g_isDarkMode ? Color(255, 48, 48, 56) : (isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
+                SolidBrush hoverBrush(inHoverCol);
                 g.FillPath(&hoverBrush, &inPath);
             }
 
@@ -1583,7 +1728,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            Color textCol(255, 115, 112, 92);
+            Color textCol = g_isDarkMode ? Color(255, 160, 160, 176) : Color(255, 115, 112, 92);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 46.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 80.0f), (REAL)(tabRc.bottom - tabRc.top));
             g.DrawString(g_tabs[i]->title.c_str(), -1, &tabFont, titleRect, &strFormat, &textBrush);
@@ -1591,11 +1736,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
-                SolidBrush closeBg(Color(255, 230, 224, 184));
+                Color closeBgCol = g_isDarkMode ? Color(255, 60, 60, 72) : Color(255, 230, 224, 184);
+                SolidBrush closeBg(closeBgCol);
                 g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
             }
 
-            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 115, 112, 92), 1.6f);
+            Color inCloseCol;
+            if (isCloseHover) {
+                inCloseCol = Color(255, 217, 48, 37);
+            } else {
+                inCloseCol = g_isDarkMode ? Color(255, 160, 160, 176) : Color(255, 115, 112, 92);
+            }
+            Pen closePen(inCloseCol, 1.6f);
             closePen.SetStartCap(LineCapRound);
             closePen.SetEndCap(LineCapRound);
 
@@ -1645,7 +1797,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            Color textCol(255, 45, 45, 42);
+            Color textCol = g_isDarkMode ? Color(255, 237, 237, 240) : Color(255, 45, 45, 42);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 46.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 80.0f), (REAL)(tabRc.bottom - tabRc.top));
             g.DrawString(g_tabs[i]->title.c_str(), -1, &tabFont, titleRect, &strFormat, &textBrush);
@@ -1653,11 +1805,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = (i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
-                SolidBrush closeBg(Color(255, 230, 224, 184));
+                Color closeBgCol = g_isDarkMode ? Color(255, 60, 60, 72) : Color(255, 230, 224, 184);
+                SolidBrush closeBg(closeBgCol);
                 g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
             }
 
-            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 115, 112, 92), 1.6f);
+            Color actCloseCol;
+            if (isCloseHover) {
+                actCloseCol = Color(255, 217, 48, 37);
+            } else {
+                actCloseCol = g_isDarkMode ? Color(255, 160, 160, 176) : Color(255, 115, 112, 92);
+            }
+            Pen closePen(actCloseCol, 1.6f);
             closePen.SetStartCap(LineCapRound);
             closePen.SetEndCap(LineCapRound);
 
@@ -1671,10 +1830,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // Draw crisp "+" New Tab Button
         RECT newTabRc = GetNewTabBtnRect(width);
         if (g_isHoveringNewTab) {
-            SolidBrush ntBrush(Color(255, 222, 216, 175));
+            Color ntHoverCol = g_isDarkMode ? Color(255, 48, 48, 56) : Color(255, 222, 216, 175);
+            SolidBrush ntBrush(ntHoverCol);
             g.FillEllipse(&ntBrush, (REAL)newTabRc.left, (REAL)newTabRc.top, (REAL)(newTabRc.right - newTabRc.left), (REAL)(newTabRc.bottom - newTabRc.top));
         }
-        Pen plusPen(Color(255, 60, 58, 54), 1.5f);
+        Pen plusPen(g_isDarkMode ? Color(255, 200, 200, 215) : Color(255, 60, 58, 54), 1.5f);
         plusPen.SetStartCap(LineCapRound);
         plusPen.SetEndCap(LineCapRound);
         REAL ntcx = (newTabRc.left + newTabRc.right) / 2.0f;
@@ -1684,7 +1844,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // 4. Draw Pill-Shaped Rounded Search Bar with Olive border (#76701B / RGB(118, 112, 27))
         RECT searchRc = GetSearchBarOuterRect(width);
-        Color borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
+        Color borderColor;
+        if (g_isDarkMode) {
+            borderColor = g_isEditFocused ? Color(255, 176, 167, 56) : Color(255, 62, 62, 76);
+        } else {
+            borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
+        }
         Pen borderPen(borderColor, 1.6f);
 
         REAL sx = (REAL)searchRc.left;
@@ -1698,7 +1863,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        SolidBrush omniboxBgBrush(Color(255, 254, 249, 235));
+        Color omniBgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        SolidBrush omniboxBgBrush(omniBgCol);
         g.FillPath(&omniboxBgBrush, &sbPath);
         g.DrawPath(&borderPen, &sbPath);
 
@@ -1712,7 +1878,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SolidBrush closeHover(Color(255, 232, 17, 35));
             g.FillRectangle(&closeHover, (REAL)clsRc.left, (REAL)clsRc.top, (REAL)(clsRc.right - clsRc.left), (REAL)(clsRc.bottom - clsRc.top));
         }
-        Pen clsPen(g_hoveredCaptionBtn == CAPTION_BTN_CLOSE ? Color(255, 255, 255, 255) : Color(255, 81, 79, 66), 1.3f);
+        Pen clsPen(g_hoveredCaptionBtn == CAPTION_BTN_CLOSE ? Color(255, 255, 255, 255) : (g_isDarkMode ? Color(255, 180, 180, 195) : Color(255, 81, 79, 66)), 1.3f);
         clsPen.SetStartCap(LineCapRound);
         clsPen.SetEndCap(LineCapRound);
         REAL clscx = (clsRc.left + clsRc.right) / 2.0f;
@@ -1722,16 +1888,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // Draw Maximize / Restore button
         if (g_hoveredCaptionBtn == CAPTION_BTN_MAXIMIZE) {
-            SolidBrush maxHover(Color(255, 222, 216, 175));
+            Color maxHoverCol = g_isDarkMode ? Color(255, 48, 48, 56) : Color(255, 222, 216, 175);
+            SolidBrush maxHover(maxHoverCol);
             g.FillRectangle(&maxHover, (REAL)maxRc.left, (REAL)maxRc.top, (REAL)(maxRc.right - maxRc.left), (REAL)(maxRc.bottom - maxRc.top));
         }
-        Pen maxPen(Color(255, 81, 79, 66), 1.3f);
+        Pen maxPen(g_isDarkMode ? Color(255, 180, 180, 195) : Color(255, 81, 79, 66), 1.3f);
         REAL maxcx = (maxRc.left + maxRc.right) / 2.0f;
         REAL maxcy = (maxRc.top + maxRc.bottom) / 2.0f;
         if (isMaximized) {
             // Restore symbol (two overlapping squares)
             g.DrawRectangle(&maxPen, maxcx - 3.5f, maxcy - 5.5f, 8.0f, 8.0f);
-            SolidBrush fillBg(Color(255, 218, 212, 160));
+            SolidBrush fillBg(g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 218, 212, 160));
             g.FillRectangle(&fillBg, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
             g.DrawRectangle(&maxPen, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
         } else {
@@ -1741,10 +1908,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // Draw Minimize button
         if (g_hoveredCaptionBtn == CAPTION_BTN_MINIMIZE) {
-            SolidBrush minHover(Color(255, 222, 216, 175));
+            Color minHoverCol = g_isDarkMode ? Color(255, 48, 48, 56) : Color(255, 222, 216, 175);
+            SolidBrush minHover(minHoverCol);
             g.FillRectangle(&minHover, (REAL)minRc.left, (REAL)minRc.top, (REAL)(minRc.right - minRc.left), (REAL)(minRc.bottom - minRc.top));
         }
-        Pen minPen(Color(255, 81, 79, 66), 1.4f);
+        Pen minPen(g_isDarkMode ? Color(255, 180, 180, 195) : Color(255, 81, 79, 66), 1.4f);
         minPen.SetStartCap(LineCapRound);
         minPen.SetEndCap(LineCapRound);
         REAL mincx = (minRc.left + minRc.right) / 2.0f;
