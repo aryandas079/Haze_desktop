@@ -621,6 +621,34 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 // --------------------------------------------------------------------------
 // Tab Coordinates & Geometry
 // --------------------------------------------------------------------------
+constexpr int CAPTION_BTN_WIDTH = 46;
+constexpr int CAPTION_BTN_HEIGHT = TAB_BAR_HEIGHT;
+
+enum CaptionButtonType {
+    CAPTION_BTN_NONE = 0,
+    CAPTION_BTN_MINIMIZE,
+    CAPTION_BTN_MAXIMIZE,
+    CAPTION_BTN_CLOSE
+};
+
+CaptionButtonType g_hoveredCaptionBtn = CAPTION_BTN_NONE;
+
+RECT GetCaptionBtnRect(CaptionButtonType type, int clientWidth) {
+    int right = clientWidth;
+    int top = 0;
+    int bottom = TAB_BAR_HEIGHT;
+    switch (type) {
+    case CAPTION_BTN_CLOSE:
+        return RECT{ right - CAPTION_BTN_WIDTH, top, right, bottom };
+    case CAPTION_BTN_MAXIMIZE:
+        return RECT{ right - (CAPTION_BTN_WIDTH * 2), top, right - CAPTION_BTN_WIDTH, bottom };
+    case CAPTION_BTN_MINIMIZE:
+        return RECT{ right - (CAPTION_BTN_WIDTH * 3), top, right - (CAPTION_BTN_WIDTH * 2), bottom };
+    default:
+        return RECT{ 0, 0, 0, 0 };
+    }
+}
+
 RECT GetTabRect(int index, int clientWidth) {
     int x = 8 + index * (TAB_WIDTH + 4);
     int y = 6;
@@ -1434,7 +1462,59 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.FillPath(&omniboxBgBrush, &sbPath);
         g.DrawPath(&borderPen, &sbPath);
 
-        // 5. Divider Line separating top bar from WebView
+        // 5. Title bar Minimize, Maximize, Close Buttons on extreme right
+        RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
+        RECT maxRc = GetCaptionBtnRect(CAPTION_BTN_MAXIMIZE, width);
+        RECT clsRc = GetCaptionBtnRect(CAPTION_BTN_CLOSE, width);
+
+        // Draw Close button
+        if (g_hoveredCaptionBtn == CAPTION_BTN_CLOSE) {
+            SolidBrush closeHover(Color(255, 232, 17, 35));
+            g.FillRectangle(&closeHover, (REAL)clsRc.left, (REAL)clsRc.top, (REAL)(clsRc.right - clsRc.left), (REAL)(clsRc.bottom - clsRc.top));
+        }
+        Pen clsPen(g_hoveredCaptionBtn == CAPTION_BTN_CLOSE ? Color(255, 255, 255, 255) : Color(255, 60, 64, 67), 1.3f);
+        clsPen.SetStartCap(LineCapRound);
+        clsPen.SetEndCap(LineCapRound);
+        REAL clscx = (clsRc.left + clsRc.right) / 2.0f;
+        REAL clscy = (clsRc.top + clsRc.bottom) / 2.0f;
+        g.DrawLine(&clsPen, clscx - 5.0f, clscy - 5.0f, clscx + 5.0f, clscy + 5.0f);
+        g.DrawLine(&clsPen, clscx + 5.0f, clscy - 5.0f, clscx - 5.0f, clscy + 5.0f);
+
+        // Draw Maximize / Restore button
+        if (g_hoveredCaptionBtn == CAPTION_BTN_MAXIMIZE) {
+            SolidBrush maxHover(Color(255, 230, 233, 238));
+            g.FillRectangle(&maxHover, (REAL)maxRc.left, (REAL)maxRc.top, (REAL)(maxRc.right - maxRc.left), (REAL)(maxRc.bottom - maxRc.top));
+        }
+        Pen maxPen(Color(255, 60, 64, 67), 1.3f);
+        REAL maxcx = (maxRc.left + maxRc.right) / 2.0f;
+        REAL maxcy = (maxRc.top + maxRc.bottom) / 2.0f;
+        WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
+        GetWindowPlacement(hWnd, &wp);
+        bool isMaximized = (wp.showCmd == SW_SHOWMAXIMIZED);
+        if (isMaximized) {
+            // Restore symbol (two overlapping squares)
+            g.DrawRectangle(&maxPen, maxcx - 3.5f, maxcy - 5.5f, 8.0f, 8.0f);
+            SolidBrush fillBg(Color(255, 222, 225, 230));
+            g.FillRectangle(&fillBg, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
+            g.DrawRectangle(&maxPen, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
+        } else {
+            // Single square
+            g.DrawRectangle(&maxPen, maxcx - 5.0f, maxcy - 5.0f, 10.0f, 10.0f);
+        }
+
+        // Draw Minimize button
+        if (g_hoveredCaptionBtn == CAPTION_BTN_MINIMIZE) {
+            SolidBrush minHover(Color(255, 230, 233, 238));
+            g.FillRectangle(&minHover, (REAL)minRc.left, (REAL)minRc.top, (REAL)(minRc.right - minRc.left), (REAL)(minRc.bottom - minRc.top));
+        }
+        Pen minPen(Color(255, 60, 64, 67), 1.4f);
+        minPen.SetStartCap(LineCapRound);
+        minPen.SetEndCap(LineCapRound);
+        REAL mincx = (minRc.left + minRc.right) / 2.0f;
+        REAL mincy = (minRc.top + minRc.bottom) / 2.0f;
+        g.DrawLine(&minPen, mincx - 5.0f, mincy, mincx + 5.0f, mincy);
+
+        // 6. Divider Line separating top bar from WebView
         Pen divPen(Color(255, 228, 231, 236), 1.0f);
         g.DrawLine(&divPen, 0.0f, (REAL)TOP_BAR_HEIGHT - 1.0f, (REAL)width, (REAL)TOP_BAR_HEIGHT - 1.0f);
 
@@ -1452,30 +1532,44 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         int newHoverTab = -1;
         int newHoverClose = -1;
         bool newHoverNewTab = false;
+        CaptionButtonType newHoverCaption = CAPTION_BTN_NONE;
 
         if (pt.y < TAB_BAR_HEIGHT) {
-            for (size_t i = 0; i < g_tabs.size(); ++i) {
-                RECT tabRc = GetTabRect((int)i, width);
-                if (PtInRect(&tabRc, pt)) {
-                    newHoverTab = (int)i;
-                    RECT closeRc = GetTabCloseRect(tabRc);
-                    if (PtInRect(&closeRc, pt)) {
-                        newHoverClose = (int)i;
-                    }
-                    break;
-                }
-            }
+            RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
+            RECT maxRc = GetCaptionBtnRect(CAPTION_BTN_MAXIMIZE, width);
+            RECT clsRc = GetCaptionBtnRect(CAPTION_BTN_CLOSE, width);
 
-            RECT ntRc = GetNewTabBtnRect(width);
-            if (PtInRect(&ntRc, pt)) {
-                newHoverNewTab = true;
+            if (PtInRect(&clsRc, pt)) {
+                newHoverCaption = CAPTION_BTN_CLOSE;
+            } else if (PtInRect(&maxRc, pt)) {
+                newHoverCaption = CAPTION_BTN_MAXIMIZE;
+            } else if (PtInRect(&minRc, pt)) {
+                newHoverCaption = CAPTION_BTN_MINIMIZE;
+            } else {
+                for (size_t i = 0; i < g_tabs.size(); ++i) {
+                    RECT tabRc = GetTabRect((int)i, width);
+                    if (PtInRect(&tabRc, pt)) {
+                        newHoverTab = (int)i;
+                        RECT closeRc = GetTabCloseRect(tabRc);
+                        if (PtInRect(&closeRc, pt)) {
+                            newHoverClose = (int)i;
+                        }
+                        break;
+                    }
+                }
+
+                RECT ntRc = GetNewTabBtnRect(width);
+                if (PtInRect(&ntRc, pt)) {
+                    newHoverNewTab = true;
+                }
             }
         }
 
-        if (newHoverTab != g_hoveredTabIndex || newHoverClose != g_hoveredCloseTabIndex || newHoverNewTab != g_isHoveringNewTab) {
+        if (newHoverTab != g_hoveredTabIndex || newHoverClose != g_hoveredCloseTabIndex || newHoverNewTab != g_isHoveringNewTab || newHoverCaption != g_hoveredCaptionBtn) {
             g_hoveredTabIndex = newHoverTab;
             g_hoveredCloseTabIndex = newHoverClose;
             g_isHoveringNewTab = newHoverNewTab;
+            g_hoveredCaptionBtn = newHoverCaption;
 
             RECT topRc{ 0, 0, width, TAB_BAR_HEIGHT };
             InvalidateRect(hWnd, &topRc, FALSE);
@@ -1486,10 +1580,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_MOUSELEAVE: {
-        if (g_hoveredTabIndex != -1 || g_hoveredCloseTabIndex != -1 || g_isHoveringNewTab) {
+        if (g_hoveredTabIndex != -1 || g_hoveredCloseTabIndex != -1 || g_isHoveringNewTab || g_hoveredCaptionBtn != CAPTION_BTN_NONE) {
             g_hoveredTabIndex = -1;
             g_hoveredCloseTabIndex = -1;
             g_isHoveringNewTab = false;
+            g_hoveredCaptionBtn = CAPTION_BTN_NONE;
 
             RECT rc;
             GetClientRect(hWnd, &rc);
@@ -1505,6 +1600,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         int width = rc.right - rc.left;
 
         if (pt.y < TAB_BAR_HEIGHT) {
+            RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
+            RECT maxRc = GetCaptionBtnRect(CAPTION_BTN_MAXIMIZE, width);
+            RECT clsRc = GetCaptionBtnRect(CAPTION_BTN_CLOSE, width);
+
+            if (PtInRect(&clsRc, pt)) {
+                PostMessage(hWnd, WM_CLOSE, 0, 0);
+                return 0;
+            }
+            if (PtInRect(&maxRc, pt)) {
+                WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
+                GetWindowPlacement(hWnd, &wp);
+                if (wp.showCmd == SW_SHOWMAXIMIZED) {
+                    ShowWindow(hWnd, SW_RESTORE);
+                } else {
+                    ShowWindow(hWnd, SW_MAXIMIZE);
+                }
+                return 0;
+            }
+            if (PtInRect(&minRc, pt)) {
+                ShowWindow(hWnd, SW_MINIMIZE);
+                return 0;
+            }
+
             RECT ntRc = GetNewTabBtnRect(width);
             if (PtInRect(&ntRc, pt)) {
                 CreateNewTab(L"about:blank");
