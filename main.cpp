@@ -173,16 +173,16 @@ void UpdateOmniboxCueBanner();
 const wchar_t* GetModernFontFamilyName() {
     static const wchar_t* s_fontName = nullptr;
     if (!s_fontName) {
-        // Try Google Sans or Segoe UI Variable Text (Windows 11 modern Chrome font), fallback to Segoe UI
-        FontFamily testGoogleSans(L"Google Sans");
-        if (testGoogleSans.GetLastStatus() == Ok) {
-            s_fontName = L"Google Sans";
+        // Modern clean browser UI font: Segoe UI Variable Text (Windows 11) or Segoe UI, with perfect font metrics
+        FontFamily testSegoeVar(L"Segoe UI Variable Text");
+        if (testSegoeVar.GetLastStatus() == Ok) {
+            s_fontName = L"Segoe UI Variable Text";
         } else {
-            FontFamily testSegoeVar(L"Segoe UI Variable Text");
-            if (testSegoeVar.GetLastStatus() == Ok) {
-                s_fontName = L"Segoe UI Variable Text";
-            } else {
+            FontFamily testSegoe(L"Segoe UI");
+            if (testSegoe.GetLastStatus() == Ok) {
                 s_fontName = L"Segoe UI";
+            } else {
+                s_fontName = L"Arial";
             }
         }
     }
@@ -456,8 +456,8 @@ void ResizeControls(int width, int height) {
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    // 16pt at 96 DPI ≈ 21px char height; add padding for descenders
-    int editH = 34;
+    // 16pt at 96 DPI ≈ 21px char height; 30px height perfectly matches Segoe UI ascent+descent
+    int editH = 30;
     int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
 
     if (g_hEdit) {
@@ -560,8 +560,10 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         }
         break;
     }
-    case WM_SETFOCUS:
+    case WM_SETFOCUS: {
         g_isEditFocused = true;
+        LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+        CreateCaret(hWnd, nullptr, 2, 22);
         ShowCaret(hWnd);
         if (g_hWnd) {
             RECT rc;
@@ -570,9 +572,11 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             sb.left -= 4; sb.top -= 4; sb.right += 4; sb.bottom += 4;
             InvalidateRect(g_hWnd, &sb, FALSE);
         }
-        break;
-    case WM_KILLFOCUS:
+        return res;
+    }
+    case WM_KILLFOCUS: {
         g_isEditFocused = false;
+        DestroyCaret();
         if (g_hWnd) {
             RECT rc;
             GetClientRect(g_hWnd, &rc);
@@ -580,7 +584,8 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             sb.left -= 4; sb.top -= 4; sb.right += 4; sb.bottom += 4;
             InvalidateRect(g_hWnd, &sb, FALSE);
         }
-        break;
+        return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+    }
     }
     return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
 }
@@ -588,23 +593,26 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 void ShowSettingsDropdown();
 
 // Settings Chevron Dropdown Button located outside the address bar
-LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK SettingsButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
+    case WM_PRINTCLIENT:
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
+        HDC hdc = (uMsg == WM_PRINTCLIENT) ? (HDC)wParam : BeginPaint(hWnd, &ps);
         RECT rc;
         GetClientRect(hWnd, &rc);
 
         Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         // Fill background with toolbar color
         Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
-        SolidBrush bgBrush(bgCol);
-        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+        g.Clear(bgCol);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         if (g_isSettingsBtnHovered) {
             SolidBrush hoverBrush(g_isDarkMode ? Color(255, 52, 52, 62) : Color(255, 238, 232, 210));
@@ -629,7 +637,7 @@ LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam,
         };
         g.DrawLines(&chevronPen, pts, 3);
 
-        EndPaint(hWnd, &ps);
+        if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
         return 0;
     }
     case WM_MOUSEMOVE: {
@@ -639,26 +647,29 @@ LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam,
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
             TrackMouseEvent(&tme);
         }
-        break;
+        return 0;
     }
     case WM_MOUSELEAVE: {
         g_isSettingsBtnHovered = false;
         InvalidateRect(hWnd, nullptr, FALSE);
-        break;
+        return 0;
     }
     case WM_LBUTTONDOWN: {
         ShowSettingsDropdown();
         return 0;
     }
     }
-    return CallWindowProc(g_originalSettingsBtnProc, hWnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 // Crisp arrow search button
-LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK SearchButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
@@ -666,11 +677,11 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         GetClientRect(hWnd, &rc);
 
         Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         // Fill background with omnibox pill warm beige
-        SolidBrush bgBrush(Color(255, 254, 249, 235));
-        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+        Color bgCol = Color(255, 254, 249, 235);
+        g.Clear(bgCol);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         if (g_isSearchBtnHovered) {
             SolidBrush hoverBrush(Color(255, 239, 230, 129));
@@ -698,38 +709,50 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
             TrackMouseEvent(&tme);
         }
-        break;
+        return 0;
     }
     case WM_MOUSELEAVE: {
         g_isSearchBtnHovered = false;
         InvalidateRect(hWnd, nullptr, FALSE);
-        break;
+        return 0;
+    }
+    case WM_LBUTTONUP: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        if (PtInRect(&rc, pt)) {
+            SendMessage(GetParent(hWnd), WM_COMMAND, MAKEWPARAM(IDC_BTN_SEARCH, 0), (LPARAM)hWnd);
+        }
+        return 0;
     }
     }
-    return CallWindowProc(g_originalSearchBtnProc, hWnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 void ShowEngineDropdown();
 
 // Search Engine Selector Button inside Omnibox
-LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK EngineButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
+    case WM_PRINTCLIENT:
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
+        HDC hdc = (uMsg == WM_PRINTCLIENT) ? (HDC)wParam : BeginPaint(hWnd, &ps);
         RECT rc;
         GetClientRect(hWnd, &rc);
 
         Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
-        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
         // Fill background with omnibox pill warm beige / dark grey
         Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
-        SolidBrush bgBrush(bgCol);
-        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+        g.Clear(bgCol);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
@@ -749,7 +772,7 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             }
         }
 
-        EndPaint(hWnd, &ps);
+        if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
         return 0;
     }
     case WM_MOUSEMOVE: {
@@ -759,28 +782,31 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
             TrackMouseEvent(&tme);
         }
-        break;
+        return 0;
     }
     case WM_MOUSELEAVE: {
         g_isEngineBtnHovered = false;
         InvalidateRect(hWnd, nullptr, FALSE);
-        break;
+        return 0;
     }
     case WM_LBUTTONDOWN: {
         ShowEngineDropdown();
         return 0;
     }
     }
-    return CallWindowProc(g_originalEngineBtnProc, hWnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 // Crisp smooth vector navigation buttons (←, →, ↻) using GDI+
-LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK NavButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     static HWND s_hoveredBtn = nullptr;
 
     switch (uMsg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
     case WM_MOUSEMOVE: {
         if (s_hoveredBtn != hWnd) {
             s_hoveredBtn = hWnd;
@@ -788,28 +814,51 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
             TrackMouseEvent(&tme);
         }
-        break;
+        return 0;
     }
     case WM_MOUSELEAVE: {
         if (s_hoveredBtn == hWnd) {
             s_hoveredBtn = nullptr;
             InvalidateRect(hWnd, nullptr, FALSE);
         }
-        break;
+        return 0;
     }
+    case WM_LBUTTONDOWN:
+        return 0;
+    case WM_LBUTTONUP: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        if (PtInRect(&rc, pt)) {
+            int id = (int)GetWindowLongPtr(hWnd, GWLP_ID);
+            bool enabled = true;
+            if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
+                auto& tab = g_tabs[g_activeTabIndex];
+                if (tab->webview) {
+                    BOOL can = FALSE;
+                    if (id == IDC_BTN_BACK && SUCCEEDED(tab->webview->get_CanGoBack(&can))) enabled = can;
+                    if (id == IDC_BTN_FORWARD && SUCCEEDED(tab->webview->get_CanGoForward(&can))) enabled = can;
+                }
+            }
+            if (enabled) {
+                SendMessage(GetParent(hWnd), WM_COMMAND, MAKEWPARAM(id, 0), (LPARAM)hWnd);
+            }
+        }
+        return 0;
+    }
+    case WM_PRINTCLIENT:
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
+        HDC hdc = (uMsg == WM_PRINTCLIENT) ? (HDC)wParam : BeginPaint(hWnd, &ps);
         RECT rc;
         GetClientRect(hWnd, &rc);
 
         Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         // Fill background with toolbar cream color / dark grey
         Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
-        SolidBrush bgBrush(bgCol);
-        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+        g.Clear(bgCol);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         int id = (int)GetWindowLongPtr(hWnd, GWLP_ID);
 
@@ -880,11 +929,11 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             g.DrawLine(&navPen, tipX, tipY, tipX + 4.5f, tipY + 0.5f);
         }
 
-        EndPaint(hWnd, &ps);
+        if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
         return 0;
     }
     }
-    return CallWindowProc(g_originalNavBtnProc, hWnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 // --------------------------------------------------------------------------
@@ -1705,45 +1754,37 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CREATE: {
         g_hWnd = hWnd;
-        const wchar_t* primaryFont = GetModernFontFamilyName();
-        // 16pt font for address bar — negative height = point-based sizing (MulDiv(16,96,72)=21)
-        HFONT hFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
-        if (!hFont) {
-            hFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        static HFONT s_editFont = nullptr;
+        if (!s_editFont) {
+            s_editFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
 
         g_hBtnBack = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeNavBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             14, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_BACK, g_hInstance, nullptr);
-        g_originalNavBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnBack, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         g_hBtnForward = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeNavBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             50, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_FORWARD, g_hInstance, nullptr);
-        SetWindowLongPtr(g_hBtnForward, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         g_hBtnReload = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeNavBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             86, TAB_BAR_HEIGHT + 10, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_RELOAD, g_hInstance, nullptr);
-        SetWindowLongPtr(g_hBtnReload, GWLP_WNDPROC, (LONG_PTR)NavButtonSubclassProc);
 
         // Search engine selector button inside omnibox
         g_hBtnEngine = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeEngineBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             140, TAB_BAR_HEIGHT + 13, 42, 34,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_ENGINE, g_hInstance, nullptr);
-        g_originalEngineBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnEngine, GWLP_WNDPROC, (LONG_PTR)EngineButtonSubclassProc);
 
         // Omnibox Edit Control
         g_hEdit = CreateWindowExW(
@@ -1752,27 +1793,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             190, TAB_BAR_HEIGHT + 14, 400, 32,
             hWnd, (HMENU)(INT_PTR)IDC_EDIT_URL, g_hInstance, nullptr);
 
-        SendMessage(g_hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(g_hEdit, WM_SETFONT, (WPARAM)s_editFont, TRUE);
         UpdateOmniboxCueBanner();
         g_originalEditProc = (WNDPROC)SetWindowLongPtr(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
         // Arrow Action Button
         g_hBtnSearch = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeSearchBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             550, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SEARCH, g_hInstance, nullptr);
 
-        g_originalSearchBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnSearch, GWLP_WNDPROC, (LONG_PTR)SearchButtonSubclassProc);
-
         // Chevron Settings Dropdown Button
         g_hBtnSettings = CreateWindowExW(
-            0, L"BUTTON", L"",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            0, L"HazeSettingsBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
             586, TAB_BAR_HEIGHT + 11, 28, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SETTINGS, g_hInstance, nullptr);
-
-        g_originalSettingsBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnSettings, GWLP_WNDPROC, (LONG_PTR)SettingsButtonSubclassProc);
 
         g_nid.hWnd = hWnd;
         g_nid.uID = 1;
@@ -2374,6 +2411,42 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
         DwmSetWindowAttribute(g_hEngineDropdownWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
     }
+
+    // Register Navigation Button Class (Clean custom window, no 3D bevels, focus rects or layout marks)
+    WNDCLASSEXW wnav{ sizeof(WNDCLASSEXW) };
+    wnav.style = CS_HREDRAW | CS_VREDRAW;
+    wnav.lpfnWndProc = NavButtonProc;
+    wnav.hInstance = hInstance;
+    wnav.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wnav.lpszClassName = L"HazeNavBtnClass";
+    RegisterClassExW(&wnav);
+
+    // Register Engine Toggle Button Class
+    WNDCLASSEXW weng{ sizeof(WNDCLASSEXW) };
+    weng.style = CS_HREDRAW | CS_VREDRAW;
+    weng.lpfnWndProc = EngineButtonProc;
+    weng.hInstance = hInstance;
+    weng.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    weng.lpszClassName = L"HazeEngineBtnClass";
+    RegisterClassExW(&weng);
+
+    // Register Settings Dropdown Button Class
+    WNDCLASSEXW wset{ sizeof(WNDCLASSEXW) };
+    wset.style = CS_HREDRAW | CS_VREDRAW;
+    wset.lpfnWndProc = SettingsButtonProc;
+    wset.hInstance = hInstance;
+    wset.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wset.lpszClassName = L"HazeSettingsBtnClass";
+    RegisterClassExW(&wset);
+
+    // Register Search Action Button Class
+    WNDCLASSEXW wsch{ sizeof(WNDCLASSEXW) };
+    wsch.style = CS_HREDRAW | CS_VREDRAW;
+    wsch.lpfnWndProc = SearchButtonProc;
+    wsch.hInstance = hInstance;
+    wsch.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wsch.lpszClassName = L"HazeSearchBtnClass";
+    RegisterClassExW(&wsch);
 
     // Register Main Browser Window Class
     WNDCLASSEXW wcex{ sizeof(WNDCLASSEXW) };
