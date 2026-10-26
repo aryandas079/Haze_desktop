@@ -453,7 +453,7 @@ void ResizeControls(int width, int height) {
     int editW = sb.right - editX - 20;
     if (editW < 50) editW = 50;
 
-    int editH = 28;
+    int editH = 32;
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
@@ -1672,12 +1672,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE: {
         g_hWnd = hWnd;
         const wchar_t* primaryFont = GetModernFontFamilyName();
-        // 13pt font for address bar matching reference
-        HFONT hFont = CreateFontW(23, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 16pt font for address bar (standard 96 DPI: 16 * 96 / 72 = 21.33pt -> height 28)
+        HFONT hFont = CreateFontW(28, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
         if (!hFont) {
-            hFont = CreateFontW(23, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(28, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
