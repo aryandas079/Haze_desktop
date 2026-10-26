@@ -144,7 +144,14 @@ static HBRUSH s_pillBrushDark = nullptr;
 // Custom Menu Items
 enum MenuAction {
     ACTION_OPEN_HAZE = 1,
-    ACTION_OPEN_SEARCH,
+    ACTION_NEW_TAB,
+    ACTION_NEW_WINDOW,
+    ACTION_ZOOM_IN,
+    ACTION_ZOOM_OUT,
+    ACTION_ZOOM_RESET,
+    ACTION_HISTORY,
+    ACTION_DOWNLOADS,
+    ACTION_PRINT,
     ACTION_SETTINGS,
     ACTION_VERSION,
     ACTION_QUIT
@@ -152,6 +159,7 @@ enum MenuAction {
 
 struct WinUI3MenuItem {
     std::wstring text;
+    std::wstring shortcut;
     MenuAction action;
     bool isSeparator;
     bool isHeader;
@@ -392,7 +400,7 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = NAV_BUTTONS_WIDTH;
-    int endX = clientWidth - 14;
+    int endX = clientWidth - 52; // leaves space for settings button outside omnibox
     return RECT{ startX, TAB_BAR_HEIGHT + 7, endX, TAB_BAR_HEIGHT + 7 + SEARCH_BAR_HEIGHT };
 }
 
@@ -423,13 +431,8 @@ void ResizeControls(int width, int height) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int btnMargin = 8;
-    int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
-    int chevronBtnW = 28;
-    int settingsBtnX = sb.right - btnMargin - chevronBtnW - 4;
-
     int editX = engineBtnX + engineBtnW + 8;
-    int editW = settingsBtnX - editX - 8;
+    int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
     int editH = 22;
@@ -441,8 +444,13 @@ void ResizeControls(int width, int height) {
     if (g_hBtnSearch) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
+
+    // Place Settings Button cleanly outside the address bar on the right
+    int settingsBtnSize = 32;
+    int settingsBtnX = width - 44;
+    int settingsBtnY = navY;
     if (g_hBtnSettings) {
-        SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, sb.top + btnMargin, chevronBtnW, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -499,7 +507,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
 void ShowSettingsDropdown();
 
-// Settings Chevron Dropdown Button at the right end of Omnibox
+// Settings Chevron Dropdown Button located outside the address bar
 LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_ERASEBKGND:
@@ -513,18 +521,18 @@ LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam,
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
-        // Fill background with omnibox pill warm beige / dark grey
-        Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        // Fill background with toolbar color
+        Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
         SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         if (g_isSettingsBtnHovered) {
-            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 239, 230, 129));
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 52, 52, 62) : Color(255, 238, 232, 210));
             g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
         // Draw chevron down icon matching the uploaded image: ∨
-        Pen chevronPen(g_isDarkMode ? Color(255, 200, 200, 215) : Color(255, 60, 58, 54), 1.8f);
+        Pen chevronPen(g_isDarkMode ? Color(255, 220, 220, 230) : Color(255, 60, 58, 54), 1.8f);
         chevronPen.SetStartCap(LineCapRound);
         chevronPen.SetEndCap(LineCapRound);
         chevronPen.SetLineJoin(LineJoinRound);
@@ -1102,8 +1110,8 @@ void CloseTab(int index) {
 // --------------------------------------------------------------------------
 // WinUI 3 Style Rounded Tray Context Menu Implementation (Anti-Aliased GDI+)
 // --------------------------------------------------------------------------
-constexpr int MENU_WIDTH = 230;
-constexpr int ITEM_HEIGHT = 36;
+constexpr int MENU_WIDTH = 260;
+constexpr int ITEM_HEIGHT = 34;
 constexpr int SEPARATOR_HEIGHT = 9;
 constexpr int MENU_PADDING_Y = 6;
 constexpr int MENU_PADDING_X = 6;
@@ -1144,9 +1152,57 @@ void ExecuteMenuAction(MenuAction action) {
     switch (action) {
     case ACTION_OPEN_HAZE:
         RestoreMainWindow(false);
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            if (!g_homePageUrl.empty()) {
+                g_tabs[g_activeTabIndex]->webview->Navigate(g_homePageUrl.c_str());
+            } else {
+                g_tabs[g_activeTabIndex]->webview->NavigateToString(g_homePageHtml.c_str());
+            }
+        }
         break;
-    case ACTION_OPEN_SEARCH:
-        RestoreMainWindow(true);
+    case ACTION_NEW_TAB:
+        RestoreMainWindow(false);
+        CreateNewTab(L"about:blank");
+        break;
+    case ACTION_NEW_WINDOW:
+        RestoreMainWindow(false);
+        CreateNewTab(L"about:blank");
+        break;
+    case ACTION_ZOOM_IN:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+            double zoom = 1.0;
+            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
+            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom + 0.1);
+        }
+        break;
+    case ACTION_ZOOM_OUT:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+            double zoom = 1.0;
+            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
+            if (zoom > 0.3) g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom - 0.1);
+        }
+        break;
+    case ACTION_ZOOM_RESET:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(1.0);
+        }
+        break;
+    case ACTION_HISTORY:
+        RestoreMainWindow(false);
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://history");
+        }
+        break;
+    case ACTION_DOWNLOADS:
+        RestoreMainWindow(false);
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://downloads");
+        }
+        break;
+    case ACTION_PRINT:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->ExecuteScript(L"window.print();", nullptr);
+        }
         break;
     case ACTION_SETTINGS:
         RestoreMainWindow(false);
@@ -1179,26 +1235,34 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        SolidBrush bgBrush(Color(255, 252, 252, 254));
+        // Menu background according to theme
+        Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 255, 255, 255);
+        SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
 
         GraphicsPath path;
         AddRoundedRect(path, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 10.0f);
 
-        Pen borderPen(Color(255, 226, 226, 229), 1.0f);
+        Color borderCol = g_isDarkMode ? Color(255, 58, 58, 70) : Color(255, 226, 226, 229);
+        Pen borderPen(borderCol, 1.0f);
         g.DrawPath(&borderPen, &path);
 
         FontFamily* pFontFamily = new FontFamily(L"Inter");
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
-            pFontFamily = new FontFamily(L"Segoe UI Variable Text");
+            pFontFamily = new FontFamily(L"Segoe UI");
         }
-        Gdiplus::Font fontRegular(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font fontBold(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
+        Gdiplus::Font fontRegular(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontBold(pFontFamily, 9.5f, FontStyleBold, UnitPoint);
+        Gdiplus::Font fontShortcut(pFontFamily, 8.5f, FontStyleRegular, UnitPoint);
 
         StringFormat strFormat;
         strFormat.SetAlignment(StringAlignmentNear);
         strFormat.SetLineAlignment(StringAlignmentCenter);
+
+        StringFormat shortcutFormat;
+        shortcutFormat.SetAlignment(StringAlignmentFar);
+        shortcutFormat.SetLineAlignment(StringAlignmentCenter);
 
         for (size_t i = 0; i < g_menuItems.size(); ++i) {
             const auto& item = g_menuItems[i];
@@ -1206,23 +1270,39 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 
             if (item.isSeparator) {
                 REAL midY = (itemRc.top + itemRc.bottom) / 2.0f;
-                Pen sepPen(Color(255, 232, 232, 235), 1.0f);
+                Color sepCol = g_isDarkMode ? Color(255, 50, 50, 60) : Color(255, 235, 235, 238);
+                Pen sepPen(sepCol, 1.0f);
                 g.DrawLine(&sepPen, (REAL)itemRc.left + 8.0f, midY, (REAL)itemRc.right - 8.0f, midY);
                 continue;
             }
 
             if ((int)i == g_hoveredIndex && item.isEnabled && !item.isHeader) {
                 GraphicsPath hoverPath;
-                AddRoundedRect(hoverPath, (REAL)itemRc.left + 2, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left - 4), (REAL)(itemRc.bottom - itemRc.top - 4), 6.0f);
-                SolidBrush hoverBrush(Color(255, 240, 240, 243));
+                AddRoundedRect(hoverPath, (REAL)itemRc.left + 4, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left - 8), (REAL)(itemRc.bottom - itemRc.top - 4), 6.0f);
+                Color hoverCol = g_isDarkMode ? Color(255, 50, 50, 60) : Color(255, 243, 243, 246);
+                SolidBrush hoverBrush(hoverCol);
                 g.FillPath(&hoverBrush, &hoverPath);
             }
 
-            Color textCol = item.isHeader ? Color(255, 20, 20, 20) : (item.isEnabled ? Color(255, 30, 30, 32) : Color(255, 130, 130, 136));
+            Color textCol;
+            if (g_isDarkMode) {
+                textCol = item.isHeader ? Color(255, 176, 167, 56) : (item.isEnabled ? Color(255, 235, 235, 240) : Color(255, 120, 120, 130));
+            } else {
+                textCol = item.isHeader ? Color(255, 118, 112, 27) : (item.isEnabled ? Color(255, 36, 36, 38) : Color(255, 150, 150, 155));
+            }
             SolidBrush textBrush(textCol);
 
-            RectF layoutRect((REAL)itemRc.left + 16.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 32.0f), (REAL)(itemRc.bottom - itemRc.top));
+            // Left text
+            RectF layoutRect((REAL)itemRc.left + 16.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 100.0f), (REAL)(itemRc.bottom - itemRc.top));
             g.DrawString(item.text.c_str(), -1, item.isHeader ? &fontBold : &fontRegular, layoutRect, &strFormat, &textBrush);
+
+            // Right shortcut text
+            if (!item.shortcut.empty()) {
+                Color scCol = g_isDarkMode ? Color(255, 140, 140, 150) : Color(255, 130, 130, 135);
+                SolidBrush scBrush(scCol);
+                RectF scRect((REAL)itemRc.left + 100.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 116.0f), (REAL)(itemRc.bottom - itemRc.top));
+                g.DrawString(item.shortcut.c_str(), -1, &fontShortcut, scRect, &shortcutFormat, &scBrush);
+            }
         }
 
         delete pFontFamily;
@@ -1493,13 +1573,32 @@ void ShowSettingsDropdown() {
 
 void SetupMenuItems() {
     g_menuItems.clear();
-    g_menuItems.push_back({ std::wstring(APP_NAME) + L" " + APP_VERSION, ACTION_VERSION, false, true, false });
-    g_menuItems.push_back({ L"", (MenuAction)0, true, false, false });
-    g_menuItems.push_back({ L"Open HAZE Home", ACTION_OPEN_HAZE, false, false, true });
-    g_menuItems.push_back({ L"New Tab", ACTION_OPEN_SEARCH, false, false, true });
-    g_menuItems.push_back({ L"Browser Settings", ACTION_SETTINGS, false, false, true });
-    g_menuItems.push_back({ L"", (MenuAction)0, true, false, false });
-    g_menuItems.push_back({ L"Exit Haze", ACTION_QUIT, false, false, true });
+    // Header
+    g_menuItems.push_back({ std::wstring(APP_NAME) + L" " + APP_VERSION, L"", ACTION_VERSION, false, true, false });
+    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+
+    // Window & Tab operations
+    g_menuItems.push_back({ L"New tab", L"Ctrl+T", ACTION_NEW_TAB, false, false, true });
+    g_menuItems.push_back({ L"New window", L"Ctrl+N", ACTION_NEW_WINDOW, false, false, true });
+    g_menuItems.push_back({ L"Open HAZE Home", L"", ACTION_OPEN_HAZE, false, false, true });
+    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+
+    // Zoom Controls
+    g_menuItems.push_back({ L"Zoom In", L"Ctrl++", ACTION_ZOOM_IN, false, false, true });
+    g_menuItems.push_back({ L"Zoom Out", L"Ctrl+-", ACTION_ZOOM_OUT, false, false, true });
+    g_menuItems.push_back({ L"Reset Zoom (100%)", L"Ctrl+0", ACTION_ZOOM_RESET, false, false, true });
+    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+
+    // Navigation & Tools
+    g_menuItems.push_back({ L"History", L"Ctrl+H", ACTION_HISTORY, false, false, true });
+    g_menuItems.push_back({ L"Downloads", L"Ctrl+J", ACTION_DOWNLOADS, false, false, true });
+    g_menuItems.push_back({ L"Print", L"Ctrl+P", ACTION_PRINT, false, false, true });
+    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+
+    // Settings & Exit
+    g_menuItems.push_back({ L"Settings", L"", ACTION_SETTINGS, false, false, true });
+    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+    g_menuItems.push_back({ L"Close HAZE", L"", ACTION_QUIT, false, false, true });
 }
 
 // --------------------------------------------------------------------------
@@ -1641,7 +1740,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_CTLCOLORBTN: {
         HWND hBtn = (HWND)lParam;
-        if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch || hBtn == g_hBtnSettings) {
+        if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
             if (g_isDarkMode) {
                 if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(40, 40, 50));
                 return (LRESULT)s_pillBrushDark;
