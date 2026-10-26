@@ -7,6 +7,7 @@
 #include <commctrl.h>
 
 #include <shellapi.h>
+#include <shobjidl.h>
 
 #include <dwmapi.h>
 
@@ -6942,12 +6943,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+    // Set AppUserModelID so Windows taskbar pins and identifies HAZE with its custom brand icon
+    SetCurrentProcessExplicitAppUserModelID(L"HAZE.Browser.App");
+
     g_hAppIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_HAZE_ICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
-
     if (!g_hAppIcon) {
-
         g_hAppIcon = (HICON)LoadImageW(nullptr, L"app.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
-
+    }
+    if (!g_hAppIcon) {
+        std::wstring appIcoPath = GetProfileFilePath(L"app.ico");
+        g_hAppIcon = (HICON)LoadImageW(nullptr, appIcoPath.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
     }
 
     LoadSearchEngineIcons();
