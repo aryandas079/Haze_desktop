@@ -129,6 +129,7 @@ bool g_isEngineBtnHovered = false;
 bool g_isEditFocused = false;
 
 std::wstring g_homePageHtml;
+std::wstring g_homePageUrl;
 
 // Custom Menu Items
 enum MenuAction {
@@ -207,16 +208,27 @@ std::wstring LoadHomePageHtml() {
     };
 
     for (const auto& path : possibleFiles) {
-        std::ifstream file(path);
-        if (file.is_open()) {
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            std::string content = buffer.str();
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, nullptr, 0);
-            if (wlen > 0) {
-                std::wstring wcontent(wlen, 0);
-                MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, &wcontent[0], wlen);
-                return wcontent;
+        DWORD dwAttrib = GetFileAttributesW(path.c_str());
+        if (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+            wchar_t fullPath[MAX_PATH] = { 0 };
+            GetFullPathNameW(path.c_str(), MAX_PATH, fullPath, nullptr);
+            std::wstring fileUri = fullPath;
+            for (auto& ch : fileUri) {
+                if (ch == L'\\') ch = L'/';
+            }
+            g_homePageUrl = L"file:///" + fileUri;
+
+            std::ifstream file(path);
+            if (file.is_open()) {
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string content = buffer.str();
+                int wlen = MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, nullptr, 0);
+                if (wlen > 0) {
+                    std::wstring wcontent(wlen, 0);
+                    MultiByteToWideChar(CP_UTF8, 0, content.c_str(), -1, &wcontent[0], wlen);
+                    return wcontent;
+                }
             }
         }
     }
@@ -682,7 +694,9 @@ void SwitchToTab(int index) {
     auto& activeTab = g_tabs[index];
 
     if (g_hEdit) {
-        if (activeTab->url.find(L"about:blank") == 0 || activeTab->url.empty() || activeTab->url.find(L"data:text/html") == 0) {
+        if (activeTab->url.find(L"about:blank") == 0 || activeTab->url.empty() || 
+            activeTab->url.find(L"data:text/html") == 0 ||
+            (!g_homePageUrl.empty() && activeTab->url.find(g_homePageUrl) == 0)) {
             SetWindowTextW(g_hEdit, L"");
         }
         else {
@@ -773,7 +787,9 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                             if (newIndex < (int)g_tabs.size()) {
                                                 g_tabs[newIndex]->url = uri;
                                                 if (g_activeTabIndex == newIndex && g_hEdit) {
-                                                    if (wcscmp(uri, L"about:blank") == 0 || wcsstr(uri, L"data:text/html") != nullptr) {
+                                                    if (wcscmp(uri, L"about:blank") == 0 || 
+                                                        wcsstr(uri, L"data:text/html") != nullptr ||
+                                                        (!g_homePageUrl.empty() && wcsstr(uri, g_homePageUrl.c_str()) != nullptr)) {
                                                         SetWindowTextW(g_hEdit, L"");
                                                     }
                                                     else {
@@ -805,7 +821,12 @@ void CreateNewTab(const std::wstring& initialUrl) {
 
                             if (initialUrl.empty() || initialUrl == L"about:blank") {
                                 tab->title = L"New Tab";
-                                tab->webview->NavigateToString(g_homePageHtml.c_str());
+                                if (!g_homePageUrl.empty()) {
+                                    tab->webview->Navigate(g_homePageUrl.c_str());
+                                }
+                                else {
+                                    tab->webview->NavigateToString(g_homePageHtml.c_str());
+                                }
                             }
                             else {
                                 tab->webview->Navigate(initialUrl.c_str());
@@ -825,7 +846,12 @@ void CloseTab(int index) {
         g_tabs[0]->title = L"New Tab";
         g_tabs[0]->url = L"about:blank";
         if (g_tabs[0]->webview) {
-            g_tabs[0]->webview->NavigateToString(g_homePageHtml.c_str());
+            if (!g_homePageUrl.empty()) {
+                g_tabs[0]->webview->Navigate(g_homePageUrl.c_str());
+            }
+            else {
+                g_tabs[0]->webview->NavigateToString(g_homePageHtml.c_str());
+            }
         }
         if (g_hEdit) SetWindowTextW(g_hEdit, L"");
         RECT topRc{ 0, 0, 2000, TOP_BAR_HEIGHT };
@@ -1221,6 +1247,7 @@ void SetupMenuItems() {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: {
+        g_hWnd = hWnd;
         HFONT hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
