@@ -106,7 +106,8 @@ HWND g_hBtnBack = nullptr;
 HWND g_hBtnForward = nullptr;
 HWND g_hBtnReload = nullptr;
 HWND g_hBtnSettings = nullptr;
-HWND g_hMenuWnd = nullptr;
+HWND g_hTrayMenuWnd = nullptr;
+HWND g_hInAppMenuWnd = nullptr;
 HWND g_hEngineDropdownWnd = nullptr;
 
 WNDPROC g_originalEditProc = nullptr;
@@ -425,15 +426,13 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = 126; // Clean spacing after Reload button (ends at x=118)
-    int omniWidth = (int)(clientWidth * 0.78f); // Expanded address bar width (~1.35x visual ratio)
-    if (omniWidth < 320) {
-        omniWidth = 320;
+    int settingsBtnSize = 32;
+    int settingsMarginRight = 14;
+    int settingsBtnX = clientWidth - settingsBtnSize - settingsMarginRight;
+    int endX = settingsBtnX - 12; // Spans to 12px before settings dropdown button at end of screen
+    if (endX < startX + 250) {
+        endX = startX + 250;
     }
-    // Leave room on right for settings dropdown button
-    if (startX + omniWidth > clientWidth - 64) {
-        omniWidth = clientWidth - 64 - startX;
-    }
-    int endX = startX + omniWidth;
     int top = TAB_BAR_HEIGHT + (TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - SEARCH_BAR_HEIGHT) / 2;
     return RECT{ startX, top, endX, top + SEARCH_BAR_HEIGHT };
 }
@@ -467,13 +466,13 @@ void ResizeControls(int width, int height) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    // Edit box — full 30px height so 15-16pt text descenders (g, y, p, q) are never cut off
+        // Edit box - 28px height with plenty of vertical breathing room for g, p, y descenders
     int editX = engineBtnX + engineBtnW + 8;
     int editW = sb.right - editX - 18;
     if (editW < 50) editW = 50;
 
-    int editH = 30;
-    int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
+    int editH = 26;
+    int editY = sb.top + 10;
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -483,9 +482,10 @@ void ResizeControls(int width, int height) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
 
-    // Dropdown for settings kept at the end of the address bar, vertically centered
+    // Dropdown for settings put at the end of the screen, vertically centered
     int settingsBtnSize = 32;
-    int settingsBtnX = sb.right + 12;
+    int settingsMarginRight = 14;
+    int settingsBtnX = width - settingsBtnSize - settingsMarginRight;
     int settingsBtnY = sb.top + (SEARCH_BAR_HEIGHT - settingsBtnSize) / 2;
     if (g_hBtnSettings) {
         SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_SHOWWINDOW);
@@ -571,27 +571,26 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     case WM_LBUTTONDOWN: {
         // If not focused, select entire text on first click
         if (GetFocus() != hWnd) {
-            CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+            SetFocus(hWnd);
             SendMessage(hWnd, EM_SETSEL, 0, -1);
-            CreateCaret(hWnd, nullptr, 2, 22);
-            ShowCaret(hWnd);
             return 0;
         }
         break;
     }
     case WM_LBUTTONUP: {
-        LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
-        if (g_isEditFocused) {
-            CreateCaret(hWnd, nullptr, 2, 22);
-            ShowCaret(hWnd);
-        }
-        return res;
+        return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
     }
     case WM_SETFOCUS: {
         g_isEditFocused = true;
         LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
-        CreateCaret(hWnd, nullptr, 2, 22);
+        
+        // Full-height 2px caret that aligns with text baseline and caps
+        POINT pt;
+        GetCaretPos(&pt);
+        CreateCaret(hWnd, nullptr, 2, 21);
+        SetCaretPos(pt.x, 1);
         ShowCaret(hWnd);
+
         if (g_hWnd) {
             RECT rc;
             GetClientRect(g_hWnd, &rc);
@@ -962,16 +961,22 @@ LRESULT CALLBACK NavButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy + wing);
         }
         else if (id == IDC_BTN_RELOAD) {
-            // Perfectly shaped browser circular reload arrow
-            REAL radius = 6.0f;
+            // Modern reload icon matching uploaded reference (media 2):
+            // Clockwise open circular arc with south-pointing arrowhead
+            REAL radius = 6.5f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-            g.DrawArc(&navPen, arcRect, 40.0f, 275.0f);
+            // Arc sweeps clockwise from 95 degrees around to 355 degrees (260 deg sweep)
+            g.DrawArc(&navPen, arcRect, 95.0f, 260.0f);
 
-            // Clockwise arrowhead at top-right end of arc (315 deg / -45 deg)
-            REAL endX = cx + radius * 0.7071f;
-            REAL endY = cy - radius * 0.7071f;
-            g.DrawLine(&navPen, endX - 4.2f, endY, endX, endY);
-            g.DrawLine(&navPen, endX, endY - 4.2f, endX, endY);
+            // Arrowhead at the right edge pointing downward / inward
+            REAL tipX = cx + radius - 0.5f;
+            REAL tipY = cy + 2.5f;
+            REAL w = 4.0f;
+
+            // Wing 1: Up-left (connects smoothly into the circular arc trajectory)
+            g.DrawLine(&navPen, tipX, tipY, tipX - w * 0.75f, tipY - w * 0.70f);
+            // Wing 2: Up-right (outer arrowhead barb)
+            g.DrawLine(&navPen, tipX, tipY, tipX + w * 0.70f, tipY - w * 0.75f);
         }
 
         if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
@@ -1292,195 +1297,83 @@ void CloseTab(int index) {
 }
 
 // --------------------------------------------------------------------------
-// 3x3 Block Grid Dropdown Menu Implementation (Anti-Aliased GDI+)
+// System Tray WinUI 3 Context Menu Implementation (media 1)
 // --------------------------------------------------------------------------
-constexpr int GRID_COLS = 3;
-constexpr int GRID_ROWS = 3;
-constexpr int BLOCK_WIDTH = 88;
-constexpr int BLOCK_HEIGHT = 80;
-constexpr int BLOCK_GAP = 9;
-constexpr int MENU_PAD_X = 14;
-constexpr int MENU_PAD_Y = 14;
+constexpr int TRAY_MENU_WIDTH = 224;
 
-constexpr int MENU_WIDTH = MENU_PAD_X * 2 + GRID_COLS * BLOCK_WIDTH + (GRID_COLS - 1) * BLOCK_GAP;   // 310px
-constexpr int MENU_HEIGHT = MENU_PAD_Y * 2 + GRID_ROWS * BLOCK_HEIGHT + (GRID_ROWS - 1) * BLOCK_GAP; // 286px
+enum TrayActionId {
+    TRAY_ACT_NONE = 0,
+    TRAY_ACT_UPDATE,
+    TRAY_ACT_QUICK_ACCESS,
+    TRAY_ACT_SETTINGS,
+    TRAY_ACT_DOCS,
+    TRAY_ACT_REPORT_BUG,
+    TRAY_ACT_CLOSE
+};
 
-int CalculateMenuHeight() {
-    return MENU_HEIGHT;
+struct TrayMenuItem {
+    std::wstring label;
+    std::wstring hint;
+    bool isSeparator;
+    TrayActionId action;
+    int height;
+};
+
+std::vector<TrayMenuItem> g_trayItems;
+int g_trayHoveredIndex = -1;
+
+void SetupTrayMenuItems() {
+    g_trayItems = {
+        { L"Update available", L"", false, TRAY_ACT_UPDATE, 36 },
+        { L"", L"", true, TRAY_ACT_NONE, 8 },
+        { L"Quick access", L"Left-click", false, TRAY_ACT_QUICK_ACCESS, 32 },
+        { L"Settings", L"Double-click", false, TRAY_ACT_SETTINGS, 32 },
+        { L"", L"", true, TRAY_ACT_NONE, 8 },
+        { L"Documentation", L"", false, TRAY_ACT_DOCS, 32 },
+        { L"Report bug", L"", false, TRAY_ACT_REPORT_BUG, 32 },
+        { L"", L"", true, TRAY_ACT_NONE, 8 },
+        { L"Close", L"", false, TRAY_ACT_CLOSE, 34 }
+    };
 }
 
-int CalculateMenuWidth() {
-    return MENU_WIDTH;
+int CalculateTrayMenuHeight() {
+    int total = 10;
+    for (const auto& item : g_trayItems) {
+        total += item.height;
+    }
+    return total;
 }
 
-RECT GetItemRect(int index) {
-    if (index < 0 || index >= GRID_COLS * GRID_ROWS) return RECT{ 0, 0, 0, 0 };
-    int col = index % GRID_COLS;
-    int row = index / GRID_COLS;
-    int bx = MENU_PAD_X + col * (BLOCK_WIDTH + BLOCK_GAP);
-    int by = MENU_PAD_Y + row * (BLOCK_HEIGHT + BLOCK_GAP);
-    return RECT{ bx, by, bx + BLOCK_WIDTH, by + BLOCK_HEIGHT };
+RECT GetTrayItemRect(int index) {
+    if (index < 0 || index >= (int)g_trayItems.size()) return RECT{ 0, 0, 0, 0 };
+    int y = 5;
+    for (int i = 0; i < index; ++i) {
+        y += g_trayItems[i].height;
+    }
+    return RECT{ 4, y, TRAY_MENU_WIDTH - 4, y + g_trayItems[index].height };
 }
 
-int GetItemFromPoint(POINT pt) {
-    for (int i = 0; i < (int)g_gridItems.size(); ++i) {
-        RECT rc = GetItemRect(i);
-        if (PtInRect(&rc, pt)) {
-            return i;
-        }
+int GetTrayItemFromPoint(POINT pt) {
+    for (int i = 0; i < (int)g_trayItems.size(); ++i) {
+        if (g_trayItems[i].isSeparator) continue;
+        RECT rc = GetTrayItemRect(i);
+        if (PtInRect(&rc, pt)) return i;
     }
     return -1;
 }
 
-void DrawGridMenuIcon(Graphics& g, GridMenuIconType iconType, REAL cx, REAL cy, const Color& color) {
-    Pen iconPen(color, 1.8f);
-    iconPen.SetStartCap(LineCapRound);
-    iconPen.SetEndCap(LineCapRound);
-    iconPen.SetLineJoin(LineJoinRound);
-
-    switch (iconType) {
-    case GRID_ICON_NEW_TAB: {
-        // Plus icon (+) as requested
-        REAL r = 8.0f;
-        g.DrawLine(&iconPen, cx - r, cy, cx + r, cy);
-        g.DrawLine(&iconPen, cx, cy - r, cx, cy + r);
-        break;
-    }
-    case GRID_ICON_NEW_WINDOW: {
-        // Overlapping modern windows
-        g.DrawRectangle(&iconPen, cx - 8.0f, cy - 3.5f, 13.0f, 11.0f);
-        g.DrawLine(&iconPen, cx - 8.0f, cy - 0.5f, cx + 5.0f, cy - 0.5f);
-        g.DrawLine(&iconPen, cx - 4.0f, cy - 7.5f, cx + 8.5f, cy - 7.5f);
-        g.DrawLine(&iconPen, cx + 8.5f, cy - 7.5f, cx + 8.5f, cy + 3.5f);
-        break;
-    }
-    case GRID_ICON_HOME: {
-        // Home roof
-        PointF roofPts[] = {
-            PointF(cx - 9.0f, cy - 0.5f),
-            PointF(cx, cy - 8.5f),
-            PointF(cx + 9.0f, cy - 0.5f)
-        };
-        g.DrawLines(&iconPen, roofPts, 3);
-        // Base / walls
-        g.DrawRectangle(&iconPen, cx - 6.5f, cy - 0.5f, 13.0f, 8.5f);
-        // Door
-        g.DrawRectangle(&iconPen, cx - 2.0f, cy + 3.0f, 4.0f, 5.0f);
-        break;
-    }
-    case GRID_ICON_HISTORY: {
-        // Clock face
-        g.DrawEllipse(&iconPen, cx - 8.5f, cy - 8.5f, 17.0f, 17.0f);
-        // Hands: 12 o'clock and 3 o'clock
-        g.DrawLine(&iconPen, cx, cy, cx, cy - 5.0f);
-        g.DrawLine(&iconPen, cx, cy, cx + 4.5f, cy);
-        break;
-    }
-    case GRID_ICON_DOWNLOADS: {
-        // Downward arrow
-        g.DrawLine(&iconPen, cx, cy - 8.0f, cx, cy + 2.0f);
-        g.DrawLine(&iconPen, cx - 4.5f, cy - 2.5f, cx, cy + 2.0f);
-        g.DrawLine(&iconPen, cx + 4.5f, cy - 2.5f, cx, cy + 2.0f);
-        // Tray bracket
-        PointF trayPts[] = {
-            PointF(cx - 8.0f, cy + 2.0f),
-            PointF(cx - 8.0f, cy + 7.5f),
-            PointF(cx + 8.0f, cy + 7.5f),
-            PointF(cx + 8.0f, cy + 2.0f)
-        };
-        g.DrawLines(&iconPen, trayPts, 4);
-        break;
-    }
-    case GRID_ICON_PRINT: {
-        // Top paper
-        g.DrawRectangle(&iconPen, cx - 5.0f, cy - 8.5f, 10.0f, 5.0f);
-        // Body
-        g.DrawRectangle(&iconPen, cx - 8.5f, cy - 3.5f, 17.0f, 7.5f);
-        // Output paper
-        g.DrawRectangle(&iconPen, cx - 5.0f, cy + 4.0f, 10.0f, 4.5f);
-        // Output print line
-        g.DrawLine(&iconPen, cx - 3.0f, cy + 6.0f, cx + 3.0f, cy + 6.0f);
-        break;
-    }
-    case GRID_ICON_ZOOM: {
-        // Magnifying glass lens
-        REAL lcx = cx - 1.5f;
-        REAL lcy = cy - 1.5f;
-        g.DrawEllipse(&iconPen, lcx - 6.0f, lcy - 6.0f, 12.0f, 12.0f);
-        // Handle
-        g.DrawLine(&iconPen, lcx + 4.2f, lcy + 4.2f, cx + 8.0f, cy + 8.0f);
-        // Plus inside lens
-        g.DrawLine(&iconPen, lcx - 3.0f, lcy, lcx + 3.0f, lcy);
-        g.DrawLine(&iconPen, lcx, lcy - 3.0f, lcx, lcy + 3.0f);
-        break;
-    }
-    case GRID_ICON_SETTINGS: {
-        // Center hub
-        g.DrawEllipse(&iconPen, cx - 3.5f, cy - 3.5f, 7.0f, 7.0f);
-        // 6 gear cogs
-        for (int a = 0; a < 6; ++a) {
-            REAL angle = a * 60.0f * 3.14159265f / 180.0f;
-            REAL cosA = cosf(angle);
-            REAL sinA = sinf(angle);
-            g.DrawLine(&iconPen, cx + cosA * 5.0f, cy + sinA * 5.0f, cx + cosA * 8.5f, cy + sinA * 8.5f);
-        }
-        break;
-    }
-    case GRID_ICON_QUIT: {
-        // Power circle arc (300 degrees)
-        g.DrawArc(&iconPen, cx - 7.5f, cy - 6.5f, 15.0f, 15.0f, 120.0f, 300.0f);
-        // Vertical power line
-        g.DrawLine(&iconPen, cx, cy - 8.5f, cx, cy - 1.0f);
-        break;
-    }
-    }
-}
-
-void ExecuteMenuAction(MenuAction action) {
+void ExecuteTrayAction(TrayActionId action) {
     switch (action) {
-    case ACTION_NEW_TAB:
-        RestoreMainWindow(false);
-        CreateNewTab(L"about:blank");
-        break;
-    case ACTION_NEW_WINDOW:
-        RestoreMainWindow(false);
-        CreateNewTab(L"about:blank");
-        break;
-    case ACTION_OPEN_HAZE:
+    case TRAY_ACT_UPDATE:
         RestoreMainWindow(false);
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            if (!g_homePageUrl.empty()) {
-                g_tabs[g_activeTabIndex]->webview->Navigate(g_homePageUrl.c_str());
-            } else {
-                g_tabs[g_activeTabIndex]->webview->NavigateToString(g_homePageHtml.c_str());
-            }
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"https://github.com");
         }
         break;
-    case ACTION_HISTORY:
+    case TRAY_ACT_QUICK_ACCESS:
         RestoreMainWindow(false);
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://history");
-        }
         break;
-    case ACTION_DOWNLOADS:
-        RestoreMainWindow(false);
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://downloads");
-        }
-        break;
-    case ACTION_PRINT:
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            g_tabs[g_activeTabIndex]->webview->ExecuteScript(L"window.print();", nullptr);
-        }
-        break;
-    case ACTION_ZOOM_IN:
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
-            double zoom = 1.0;
-            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
-            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom + 0.1);
-        }
-        break;
-    case ACTION_SETTINGS:
+    case TRAY_ACT_SETTINGS:
         RestoreMainWindow(false);
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
             if (!g_settingsPageUrl.empty()) {
@@ -1490,15 +1383,23 @@ void ExecuteMenuAction(MenuAction action) {
             }
         }
         break;
-    case ACTION_QUIT:
-        DestroyWindow(g_hWnd);
+    case TRAY_ACT_DOCS:
+        RestoreMainWindow(false);
+        CreateNewTab(L"https://github.com");
+        break;
+    case TRAY_ACT_REPORT_BUG:
+        RestoreMainWindow(false);
+        CreateNewTab(L"https://github.com/issues");
+        break;
+    case TRAY_ACT_CLOSE:
+        PostMessage(g_hWnd, WM_CLOSE, 0, 0);
         break;
     default:
         break;
     }
 }
 
-LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK TrayMenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_ERASEBKGND:
         return 1;
@@ -1508,7 +1409,6 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-
         RECT rcClient;
         GetClientRect(hWnd, &rcClient);
 
@@ -1516,103 +1416,85 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        // Menu background according to theme
-        Color bgCol = g_isDarkMode ? Color(255, 30, 30, 36) : Color(255, 248, 243, 230);
-        SolidBrush bgBrush(bgCol);
-        g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
+        // Background: Clean white matching media 1
+        SolidBrush bgBrush(Color(255, 255, 255, 255));
+        g.FillRectangle(&bgBrush, 0, 0, rcClient.right, rcClient.bottom);
 
-        GraphicsPath outerPath;
-        AddRoundedRect(outerPath, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 12.0f);
+        Pen borderPen(Color(255, 222, 222, 222), 1.0f);
+        g.DrawRectangle(&borderPen, 0, 0, rcClient.right - 1, rcClient.bottom - 1);
 
-        Color borderCol = g_isDarkMode ? Color(255, 60, 60, 72) : Color(255, 218, 212, 195);
-        Pen borderPen(borderCol, 1.2f);
-        g.DrawPath(&borderPen, &outerPath);
-
-        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
-        if (pFontFamily->GetLastStatus() != Ok) {
-            delete pFontFamily;
+        FontFamily* pFontFamily = nullptr;
+        FontFamily testFam(L"Segoe UI");
+        if (testFam.GetLastStatus() == Ok) {
             pFontFamily = new FontFamily(L"Segoe UI");
+        } else {
+            pFontFamily = FontFamily::GenericSansSerif()->Clone();
         }
-        Gdiplus::Font fontLabel(pFontFamily, 9.0f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font fontLabelHover(pFontFamily, 9.0f, FontStyleBold, UnitPoint);
 
-        StringFormat strFormat;
-        strFormat.SetAlignment(StringAlignmentCenter);
-        strFormat.SetLineAlignment(StringAlignmentCenter);
-        strFormat.SetTrimming(StringTrimmingEllipsisCharacter);
-        strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
+        Gdiplus::Font fontLabel(pFontFamily, 9.8f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontHint(pFontFamily, 9.2f, FontStyleRegular, UnitPoint);
 
-        for (size_t i = 0; i < g_gridItems.size(); ++i) {
-            const auto& item = g_gridItems[i];
-            RECT blockRc = GetItemRect((int)i);
-            bool isHover = ((int)i == g_hoveredIndex);
+        SolidBrush textBrush(Color(255, 26, 26, 26));
+        SolidBrush hintBrush(Color(255, 105, 105, 105));
+        SolidBrush hoverBrush(Color(255, 242, 242, 242));
+        Pen sepPen(Color(255, 234, 234, 234), 1.0f);
 
-            REAL bx = (REAL)blockRc.left;
-            REAL by = (REAL)blockRc.top;
-            REAL bw = (REAL)(blockRc.right - blockRc.left);
-            REAL bh = (REAL)(blockRc.bottom - blockRc.top);
+        StringFormat strLeft;
+        strLeft.SetAlignment(StringAlignmentNear);
+        strLeft.SetLineAlignment(StringAlignmentCenter);
 
-            GraphicsPath blockPath;
-            AddRoundedRect(blockPath, bx, by, bw, bh, 9.0f);
+        StringFormat strRight;
+        strRight.SetAlignment(StringAlignmentFar);
+        strRight.SetLineAlignment(StringAlignmentCenter);
 
-            Color cardBg;
-            Color cardBorder;
-            Color iconCol;
-            Color textCol;
+        for (int i = 0; i < (int)g_trayItems.size(); ++i) {
+            const auto& item = g_trayItems[i];
+            RECT rc = GetTrayItemRect(i);
+            REAL rx = (REAL)rc.left;
+            REAL ry = (REAL)rc.top;
+            REAL rw = (REAL)(rc.right - rc.left);
+            REAL rh = (REAL)(rc.bottom - rc.top);
 
-            if (g_isDarkMode) {
-                if (isHover) {
-                    cardBg = Color(255, 54, 54, 66);
-                    cardBorder = Color(255, 176, 167, 56);
-                    iconCol = Color(255, 255, 255, 255);
-                    textCol = Color(255, 255, 255, 255);
-                } else {
-                    cardBg = Color(255, 40, 40, 48);
-                    cardBorder = Color(255, 56, 56, 66);
-                    iconCol = Color(255, 205, 205, 215);
-                    textCol = Color(255, 215, 215, 225);
-                }
-            } else {
-                if (isHover) {
-                    cardBg = Color(255, 238, 232, 210);
-                    cardBorder = Color(255, 118, 112, 27);
-                    iconCol = Color(255, 95, 90, 15);
-                    textCol = Color(255, 35, 33, 25);
-                } else {
-                    cardBg = Color(255, 254, 250, 242);
-                    cardBorder = Color(255, 230, 224, 206);
-                    iconCol = Color(255, 80, 76, 62);
-                    textCol = Color(255, 60, 58, 50);
-                }
+            if (item.isSeparator) {
+                REAL midY = ry + (rh / 2.0f);
+                g.DrawLine(&sepPen, rx + 8.0f, midY, rx + rw - 8.0f, midY);
+                continue;
             }
 
-            SolidBrush blockBrush(cardBg);
-            g.FillPath(&blockBrush, &blockPath);
+            bool isHover = (i == g_trayHoveredIndex);
+            if (isHover) {
+                GraphicsPath hoverPath;
+                REAL hx = rx + 3.0f;
+                REAL hy = ry + 1.0f;
+                REAL hw = rw - 6.0f;
+                REAL hh = rh - 2.0f;
+                REAL cr = 4.0f;
+                hoverPath.AddArc(hx, hy, cr * 2.0f, cr * 2.0f, 180.0f, 90.0f);
+                hoverPath.AddArc(hx + hw - cr * 2.0f, hy, cr * 2.0f, cr * 2.0f, 270.0f, 90.0f);
+                hoverPath.AddArc(hx + hw - cr * 2.0f, hy + hh - cr * 2.0f, cr * 2.0f, cr * 2.0f, 0.0f, 90.0f);
+                hoverPath.AddArc(hx, hy + hh - cr * 2.0f, cr * 2.0f, cr * 2.0f, 90.0f, 90.0f);
+                hoverPath.CloseFigure();
+                g.FillPath(&hoverBrush, &hoverPath);
+            }
 
-            Pen blockPen(cardBorder, isHover ? 1.5f : 1.0f);
-            g.DrawPath(&blockPen, &blockPath);
+            RectF textRc(rx + 14.0f, ry, rw - 28.0f, rh);
+            g.DrawString(item.label.c_str(), -1, &fontLabel, textRc, &strLeft, &textBrush);
 
-            // Icon at top center of block
-            REAL icx = bx + bw / 2.0f;
-            REAL icy = by + 28.0f;
-            DrawGridMenuIcon(g, item.iconType, icx, icy, iconCol);
-
-            // Text label at bottom of block
-            SolidBrush textBrush(textCol);
-            RectF labelRc(bx + 4.0f, by + 48.0f, bw - 8.0f, 22.0f);
-            g.DrawString(item.text.c_str(), -1, isHover ? &fontLabelHover : &fontLabel, labelRc, &strFormat, &textBrush);
+            if (!item.hint.empty()) {
+                RectF hintRc(rx + 14.0f, ry, rw - 28.0f, rh);
+                g.DrawString(item.hint.c_str(), -1, &fontHint, hintRc, &strRight, &hintBrush);
+            }
         }
 
         delete pFontFamily;
-
         EndPaint(hWnd, &ps);
         return 0;
     }
     case WM_MOUSEMOVE: {
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
-        int newHover = GetItemFromPoint(pt);
-        if (newHover != g_hoveredIndex) {
-            g_hoveredIndex = newHover;
+        int newHover = GetTrayItemFromPoint(pt);
+        if (newHover != g_trayHoveredIndex) {
+            g_trayHoveredIndex = newHover;
             InvalidateRect(hWnd, nullptr, FALSE);
 
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
@@ -1621,18 +1503,18 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_MOUSELEAVE: {
-        if (g_hoveredIndex != -1) {
-            g_hoveredIndex = -1;
+        if (g_trayHoveredIndex != -1) {
+            g_trayHoveredIndex = -1;
             InvalidateRect(hWnd, nullptr, FALSE);
         }
         return 0;
     }
     case WM_LBUTTONUP: {
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
-        int clickedIdx = GetItemFromPoint(pt);
+        int clickedIdx = GetTrayItemFromPoint(pt);
         ShowWindow(hWnd, SW_HIDE);
-        if (clickedIdx >= 0 && clickedIdx < (int)g_gridItems.size()) {
-            ExecuteMenuAction(g_gridItems[clickedIdx].action);
+        if (clickedIdx >= 0 && clickedIdx < (int)g_trayItems.size()) {
+            ExecuteTrayAction(g_trayItems[clickedIdx].action);
         }
         return 0;
     }
@@ -1653,11 +1535,12 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 }
 
 void ShowWinUI3Menu() {
+    if (!g_hTrayMenuWnd) return;
     POINT cursor;
     GetCursorPos(&cursor);
 
-    int menuW = CalculateMenuWidth();
-    int menuH = CalculateMenuHeight();
+    int menuW = TRAY_MENU_WIDTH;
+    int menuH = CalculateTrayMenuHeight();
 
     RECT workArea;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
@@ -1669,111 +1552,676 @@ void ShowWinUI3Menu() {
     int posY = cursor.y - menuH - 8;
     if (posY < workArea.top) posY = cursor.y + 8;
 
-    g_hoveredIndex = -1;
+    g_trayHoveredIndex = -1;
 
-    SetWindowPos(g_hMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
-    SetForegroundWindow(g_hMenuWnd);
-    SetFocus(g_hMenuWnd);
-    InvalidateRect(g_hMenuWnd, nullptr, TRUE);
+    SetWindowPos(g_hTrayMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_hTrayMenuWnd);
+    SetFocus(g_hTrayMenuWnd);
+    InvalidateRect(g_hTrayMenuWnd, nullptr, TRUE);
 }
+
+ // --------------------------------------------------------------------------
+ // Search Engine Dropdown Popup Window
+ // --------------------------------------------------------------------------
+ constexpr int ENGINE_DROPDOWN_WIDTH = 220;
+ constexpr int ENGINE_ITEM_HEIGHT = 40;
+ constexpr int ENGINE_HEADER_HEIGHT = 34;
+ 
+ int CalculateEngineDropdownHeight() {
+     return 10 + ENGINE_HEADER_HEIGHT + (int)g_searchEngines.size() * ENGINE_ITEM_HEIGHT + 8;
+ }
+ 
+ RECT GetEngineItemRect(int index) {
+     int y = 10 + ENGINE_HEADER_HEIGHT + index * ENGINE_ITEM_HEIGHT;
+     return RECT{ 8, y, ENGINE_DROPDOWN_WIDTH - 8, y + ENGINE_ITEM_HEIGHT };
+ }
+ 
+ int GetEngineItemFromPoint(POINT pt) {
+     for (size_t i = 0; i < g_searchEngines.size(); ++i) {
+         RECT rc = GetEngineItemRect((int)i);
+         if (PtInRect(&rc, pt)) {
+             return (int)i;
+         }
+     }
+     return -1;
+ }
+ 
+ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+     switch (msg) {
+     case WM_PAINT: {
+         PAINTSTRUCT ps;
+         HDC hdc = BeginPaint(hWnd, &ps);
+ 
+         RECT rcClient;
+         GetClientRect(hWnd, &rcClient);
+ 
+         Graphics g(hdc);
+         g.SetSmoothingMode(SmoothingModeAntiAlias);
+         g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+ 
+         // Background pure white
+         SolidBrush bgBrush(Color(255, 255, 255, 255));
+         g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
+ 
+         // Rounded border
+         GraphicsPath path;
+         AddRoundedRect(path, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 12.0f);
+         Pen borderPen(Color(255, 222, 224, 228), 1.2f);
+         g.DrawPath(&borderPen, &path);
+ 
+         FontFamily* pFontFamily = new FontFamily(L"Inter");
+         if (pFontFamily->GetLastStatus() != Ok) {
+             delete pFontFamily;
+             pFontFamily = new FontFamily(L"Segoe UI");
+         }
+         Gdiplus::Font headerFont(pFontFamily, 10.0f, FontStyleRegular, UnitPoint);
+         Gdiplus::Font itemFont(pFontFamily, 11.0f, FontStyleRegular, UnitPoint);
+         Gdiplus::Font itemSelectedFont(pFontFamily, 11.0f, FontStyleBold, UnitPoint);
+ 
+         // Draw "Search with:" Header
+         SolidBrush headerBrush(Color(255, 100, 103, 107));
+         StringFormat headerFormat;
+         headerFormat.SetAlignment(StringAlignmentNear);
+         headerFormat.SetLineAlignment(StringAlignmentCenter);
+         RectF headerRc(16.0f, 10.0f, (REAL)ENGINE_DROPDOWN_WIDTH - 32.0f, (REAL)ENGINE_HEADER_HEIGHT);
+         g.DrawString(L"Search with:", -1, &headerFont, headerRc, &headerFormat, &headerBrush);
+ 
+         StringFormat strFormat;
+         strFormat.SetAlignment(StringAlignmentNear);
+         strFormat.SetLineAlignment(StringAlignmentCenter);
+ 
+         // Draw Search Engines List
+         for (size_t i = 0; i < g_searchEngines.size(); ++i) {
+             const auto& eng = g_searchEngines[i];
+             RECT itemRc = GetEngineItemRect((int)i);
+             bool isHover = ((int)i == g_engineDropdownHoveredIndex);
+             bool isSelected = ((int)i == g_selectedEngineIndex);
+ 
+             if (isHover || isSelected) {
+                 GraphicsPath hoverPath;
+                 AddRoundedRect(hoverPath, (REAL)itemRc.left, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left), (REAL)(itemRc.bottom - itemRc.top - 4), 8.0f);
+                 Color hoverCol = isSelected ? Color(255, 240, 244, 252) : Color(255, 245, 246, 248);
+                 SolidBrush hBrush(hoverCol);
+                 g.FillPath(&hBrush, &hoverPath);
+             }
+ 
+             // Draw Engine Logo
+             if (eng.pBitmap) {
+                 REAL iconY = itemRc.top + ((itemRc.bottom - itemRc.top - 20) / 2.0f);
+                 g.DrawImage(eng.pBitmap, (REAL)itemRc.left + 10.0f, iconY, 20.0f, 20.0f);
+             }
+ 
+             // Draw Engine Name
+             Color textCol = isSelected ? Color(255, 26, 115, 232) : Color(255, 32, 33, 36);
+             SolidBrush textBrush(textCol);
+             RectF layoutRect((REAL)itemRc.left + 38.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 46.0f), (REAL)(itemRc.bottom - itemRc.top));
+             g.DrawString(eng.name.c_str(), -1, isSelected ? &itemSelectedFont : &itemFont, layoutRect, &strFormat, &textBrush);
+         }
+ 
+         delete pFontFamily;
+         EndPaint(hWnd, &ps);
+         return 0;
+     }
+     case WM_MOUSEMOVE: {
+         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+         int newHover = GetEngineItemFromPoint(pt);
+         if (newHover != g_engineDropdownHoveredIndex) {
+             g_engineDropdownHoveredIndex = newHover;
+             InvalidateRect(hWnd, nullptr, FALSE);
+ 
+             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+             TrackMouseEvent(&tme);
+         }
+         return 0;
+     }
+     case WM_MOUSELEAVE: {
+         if (g_engineDropdownHoveredIndex != -1) {
+             g_engineDropdownHoveredIndex = -1;
+             InvalidateRect(hWnd, nullptr, FALSE);
+         }
+         return 0;
+     }
+     case WM_LBUTTONUP: {
+         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+         int clickedIdx = GetEngineItemFromPoint(pt);
+         ShowWindow(hWnd, SW_HIDE);
+         if (clickedIdx >= 0 && clickedIdx < (int)g_searchEngines.size()) {
+             g_selectedEngineIndex = clickedIdx;
+             UpdateOmniboxCueBanner();
+             if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
+             if (g_hEdit) {
+                 SetFocus(g_hEdit);
+                 SendMessage(g_hEdit, EM_SETSEL, 0, -1);
+             }
+         }
+         return 0;
+     }
+     case WM_KILLFOCUS:
+         ShowWindow(hWnd, SW_HIDE);
+         return 0;
+     default:
+         return DefWindowProc(hWnd, msg, wParam, lParam);
+     }
+ }
+ 
+ void ShowEngineDropdown() {
+     if (!g_hEngineDropdownWnd || !g_hBtnEngine) return;
+ 
+     RECT btnRc;
+     GetWindowRect(g_hBtnEngine, &btnRc);
+ 
+     int menuW = ENGINE_DROPDOWN_WIDTH;
+     int menuH = CalculateEngineDropdownHeight();
+ 
+     RECT workArea;
+     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+ 
+     int posX = btnRc.left - 6;
+     if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
+     if (posX < workArea.left) posX = workArea.left + 10;
+ 
+     int posY = btnRc.bottom + 6;
+     if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+ 
+     g_engineDropdownHoveredIndex = -1;
+ 
+     SetWindowPos(g_hEngineDropdownWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+     SetForegroundWindow(g_hEngineDropdownWnd);
+     SetFocus(g_hEngineDropdownWnd);
+     InvalidateRect(g_hEngineDropdownWnd, nullptr, TRUE);
+ }
+
 
 // --------------------------------------------------------------------------
-// Search Engine Dropdown Popup Window
+// In-App Microsoft Edge Style Menu Implementation (Light Theme, media 2)
 // --------------------------------------------------------------------------
-constexpr int ENGINE_DROPDOWN_WIDTH = 220;
-constexpr int ENGINE_ITEM_HEIGHT = 40;
-constexpr int ENGINE_HEADER_HEIGHT = 34;
+constexpr int INAPP_MENU_WIDTH = 340;
 
-int CalculateEngineDropdownHeight() {
-    return 10 + ENGINE_HEADER_HEIGHT + (int)g_searchEngines.size() * ENGINE_ITEM_HEIGHT + 8;
+enum InAppItemType {
+    INAPP_ITEM_NORMAL,
+    INAPP_ITEM_ZOOM_ROW,
+    INAPP_ITEM_SEPARATOR
+};
+
+enum InAppIcon {
+    ICON_NONE = 0,
+    ICON_NEW_TAB,
+    ICON_NEW_WINDOW,
+    ICON_NEW_INPRIVATE,
+    ICON_ZOOM,
+    ICON_FAVORITES,
+    ICON_HISTORY,
+    ICON_TAB_GROUPS,
+    ICON_DOWNLOADS,
+    ICON_EXTENSIONS,
+    ICON_PASSWORDS,
+    ICON_DELETE_DATA,
+    ICON_PRINT,
+    ICON_TRANSLATE,
+    ICON_SCREENSHOT,
+    ICON_FIND,
+    ICON_SETTINGS,
+    ICON_HELP
+};
+
+enum InAppActionId {
+    INAPP_ACT_NONE = 0,
+    INAPP_ACT_NEW_TAB,
+    INAPP_ACT_NEW_WINDOW,
+    INAPP_ACT_NEW_INPRIVATE,
+    INAPP_ACT_FAVORITES,
+    INAPP_ACT_HISTORY,
+    INAPP_ACT_TAB_GROUPS,
+    INAPP_ACT_DOWNLOADS,
+    INAPP_ACT_EXTENSIONS,
+    INAPP_ACT_PASSWORDS,
+    INAPP_ACT_DELETE_DATA,
+    INAPP_ACT_PRINT,
+    INAPP_ACT_TRANSLATE,
+    INAPP_ACT_SCREENSHOT,
+    INAPP_ACT_FIND,
+    INAPP_ACT_MORE_TOOLS,
+    INAPP_ACT_SETTINGS,
+    INAPP_ACT_HELP,
+    INAPP_ACT_CLOSE
+};
+
+struct InAppMenuItem {
+    InAppItemType type;
+    InAppIcon icon;
+    std::wstring label;
+    std::wstring shortcutOrFlyout;
+    InAppActionId action;
+    int height;
+};
+
+std::vector<InAppMenuItem> g_inAppItems;
+int g_inAppHoveredIndex = -1;
+int g_zoomHoveredBtn = 0; // 1: minus, 2: plus, 3: fullscreen
+
+void SetupInAppMenuItems() {
+    g_inAppItems = {
+        // Section 1: Tabs & Windows
+        { INAPP_ITEM_NORMAL, ICON_NEW_TAB, L"New tab", L"", INAPP_ACT_NEW_TAB, 36 },
+        { INAPP_ITEM_NORMAL, ICON_NEW_WINDOW, L"New window", L"", INAPP_ACT_NEW_WINDOW, 36 },
+        { INAPP_ITEM_NORMAL, ICON_NEW_INPRIVATE, L"New InPrivate window", L"", INAPP_ACT_NEW_INPRIVATE, 36 },
+        { INAPP_ITEM_SEPARATOR, ICON_NONE, L"", L"", INAPP_ACT_NONE, 10 },
+
+        // Section 2: Zoom Row
+        { INAPP_ITEM_ZOOM_ROW, ICON_ZOOM, L"Zoom", L"", INAPP_ACT_NONE, 40 },
+        { INAPP_ITEM_SEPARATOR, ICON_NONE, L"", L"", INAPP_ACT_NONE, 10 },
+
+        // Section 3: Navigation & Data
+        { INAPP_ITEM_NORMAL, ICON_FAVORITES, L"Favorites", L"", INAPP_ACT_FAVORITES, 36 },
+        { INAPP_ITEM_NORMAL, ICON_HISTORY, L"History", L"", INAPP_ACT_HISTORY, 36 },
+        { INAPP_ITEM_NORMAL, ICON_TAB_GROUPS, L"Tab groups", L"", INAPP_ACT_TAB_GROUPS, 36 },
+        { INAPP_ITEM_NORMAL, ICON_DOWNLOADS, L"Downloads", L"", INAPP_ACT_DOWNLOADS, 36 },
+        { INAPP_ITEM_NORMAL, ICON_EXTENSIONS, L"Extensions", L"", INAPP_ACT_EXTENSIONS, 36 },
+        { INAPP_ITEM_NORMAL, ICON_PASSWORDS, L"Passwords", L"", INAPP_ACT_PASSWORDS, 36 },
+        { INAPP_ITEM_SEPARATOR, ICON_NONE, L"", L"", INAPP_ACT_NONE, 10 },
+
+        // Section 4: Tools & Actions
+        { INAPP_ITEM_NORMAL, ICON_DELETE_DATA, L"Delete browsing data", L"", INAPP_ACT_DELETE_DATA, 36 },
+        { INAPP_ITEM_NORMAL, ICON_PRINT, L"Print", L"", INAPP_ACT_PRINT, 36 },
+        { INAPP_ITEM_NORMAL, ICON_TRANSLATE, L"Translate", L"", INAPP_ACT_TRANSLATE, 36 },
+        { INAPP_ITEM_NORMAL, ICON_SCREENSHOT, L"Screenshot", L"", INAPP_ACT_SCREENSHOT, 36 },
+        { INAPP_ITEM_NORMAL, ICON_FIND, L"Find on page", L"", INAPP_ACT_FIND, 36 },
+        { INAPP_ITEM_NORMAL, ICON_NONE, L"More tools", L"", INAPP_ACT_MORE_TOOLS, 36 },
+        { INAPP_ITEM_SEPARATOR, ICON_NONE, L"", L"", INAPP_ACT_NONE, 10 },
+
+        // Section 5: Settings & Help
+        { INAPP_ITEM_NORMAL, ICON_SETTINGS, L"Settings", L"", INAPP_ACT_SETTINGS, 36 },
+        { INAPP_ITEM_NORMAL, ICON_HELP, L"Help and feedback", L"", INAPP_ACT_HELP, 36 },
+        { INAPP_ITEM_SEPARATOR, ICON_NONE, L"", L"", INAPP_ACT_NONE, 10 },
+
+        // Section 6: Close
+        { INAPP_ITEM_NORMAL, ICON_NONE, L"Close HAZE", L"", INAPP_ACT_CLOSE, 38 }
+    };
+}
+int CalculateInAppMenuHeight() {
+    int total = 14;
+    for (const auto& item : g_inAppItems) {
+        total += item.height;
+    }
+    return total;
 }
 
-RECT GetEngineItemRect(int index) {
-    int y = 10 + ENGINE_HEADER_HEIGHT + index * ENGINE_ITEM_HEIGHT;
-    return RECT{ 8, y, ENGINE_DROPDOWN_WIDTH - 8, y + ENGINE_ITEM_HEIGHT };
+RECT GetInAppItemRect(int index) {
+    if (index < 0 || index >= (int)g_inAppItems.size()) return RECT{ 0, 0, 0, 0 };
+    int y = 7;
+    for (int i = 0; i < index; ++i) {
+        y += g_inAppItems[i].height;
+    }
+    return RECT{ 6, y, INAPP_MENU_WIDTH - 6, y + g_inAppItems[index].height };
 }
 
-int GetEngineItemFromPoint(POINT pt) {
-    for (size_t i = 0; i < g_searchEngines.size(); ++i) {
-        RECT rc = GetEngineItemRect((int)i);
-        if (PtInRect(&rc, pt)) {
-            return (int)i;
-        }
+int GetInAppItemFromPoint(POINT pt) {
+    for (int i = 0; i < (int)g_inAppItems.size(); ++i) {
+        if (g_inAppItems[i].type == INAPP_ITEM_SEPARATOR) continue;
+        RECT rc = GetInAppItemRect(i);
+        if (PtInRect(&rc, pt)) return i;
     }
     return -1;
 }
 
-LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+void DrawInAppIcon(Graphics& g, InAppIcon icon, REAL cx, REAL cy, const Color& color) {
+    Pen pen(color, 1.35f);
+    pen.SetStartCap(LineCapRound);
+    pen.SetEndCap(LineCapRound);
+    pen.SetLineJoin(LineJoinRound);
+
+    switch (icon) {
+    case ICON_NEW_TAB:
+        g.DrawRectangle(&pen, cx - 6.5f, cy - 6.0f, 13.0f, 12.0f);
+        g.DrawLine(&pen, cx - 3.5f, cy, cx + 3.5f, cy);
+        g.DrawLine(&pen, cx, cy - 3.5f, cx, cy + 3.5f);
+        break;
+    case ICON_NEW_WINDOW:
+        g.DrawRectangle(&pen, cx - 6.5f, cy - 6.0f, 13.0f, 12.0f);
+        g.DrawLine(&pen, cx - 6.5f, cy - 2.5f, cx + 6.5f, cy - 2.5f);
+        break;
+    case ICON_NEW_INPRIVATE:
+        g.DrawRectangle(&pen, cx - 4.5f, cy - 6.5f, 11.0f, 8.5f);
+        g.DrawRectangle(&pen, cx - 6.5f, cy - 3.5f, 11.0f, 8.5f);
+        break;
+    case ICON_ZOOM:
+        g.DrawEllipse(&pen, cx - 6.0f, cy - 6.0f, 9.0f, 9.0f);
+        g.DrawLine(&pen, cx + 1.0f, cy + 1.0f, cx + 6.0f, cy + 6.0f);
+        break;
+    case ICON_FAVORITES: {
+        PointF starPts[10];
+        REAL rOuter = 6.5f;
+        REAL rInner = 2.8f;
+        for (int i = 0; i < 10; ++i) {
+            REAL a = (i * 36.0f - 90.0f) * 3.14159265f / 180.0f;
+            REAL r = (i % 2 == 0) ? rOuter : rInner;
+            starPts[i] = PointF(cx + r * cosf(a), cy + r * sinf(a));
+        }
+        g.DrawPolygon(&pen, starPts, 10);
+        break;
+    }
+    case ICON_HISTORY:
+        g.DrawEllipse(&pen, cx - 6.0f, cy - 6.0f, 12.0f, 12.0f);
+        g.DrawLine(&pen, cx, cy, cx, cy - 3.5f);
+        g.DrawLine(&pen, cx, cy, cx + 2.8f, cy);
+        break;
+    case ICON_TAB_GROUPS:
+        g.DrawRectangle(&pen, cx - 6.5f, cy - 4.5f, 13.0f, 9.0f);
+        g.DrawLine(&pen, cx - 1.5f, cy - 4.5f, cx - 1.5f, cy + 4.5f);
+        break;
+    case ICON_DOWNLOADS:
+        g.DrawLine(&pen, cx, cy - 6.0f, cx, cy + 1.5f);
+        g.DrawLine(&pen, cx, cy + 1.5f, cx - 3.0f, cy - 1.5f);
+        g.DrawLine(&pen, cx, cy + 1.5f, cx + 3.0f, cy - 1.5f);
+        g.DrawLine(&pen, cx - 5.5f, cy + 5.0f, cx + 5.5f, cy + 5.0f);
+        break;
+    case ICON_EXTENSIONS:
+        g.DrawRectangle(&pen, cx - 5.5f, cy - 5.5f, 5.0f, 5.0f);
+        g.DrawRectangle(&pen, cx + 0.5f, cy - 5.5f, 5.0f, 5.0f);
+        g.DrawRectangle(&pen, cx - 5.5f, cy + 0.5f, 5.0f, 5.0f);
+        g.DrawRectangle(&pen, cx + 0.5f, cy + 0.5f, 5.0f, 5.0f);
+        break;
+    case ICON_PASSWORDS:
+        g.DrawEllipse(&pen, cx - 5.5f, cy - 3.5f, 6.5f, 6.5f);
+        g.DrawLine(&pen, cx + 1.0f, cy, cx + 6.5f, cy);
+        g.DrawLine(&pen, cx + 4.0f, cy, cx + 4.0f, cy + 3.0f);
+        g.DrawLine(&pen, cx + 6.5f, cy, cx + 6.5f, cy + 2.0f);
+        break;
+    case ICON_DELETE_DATA:
+        g.DrawLine(&pen, cx - 5.5f, cy - 4.5f, cx + 5.5f, cy - 4.5f);
+        g.DrawRectangle(&pen, cx - 4.0f, cy - 3.5f, 8.0f, 9.0f);
+        g.DrawLine(&pen, cx - 1.5f, cy - 1.5f, cx - 1.5f, cy + 3.5f);
+        g.DrawLine(&pen, cx + 1.5f, cy - 1.5f, cx + 1.5f, cy + 3.5f);
+        break;
+    case ICON_PRINT:
+        g.DrawRectangle(&pen, cx - 6.0f, cy - 2.5f, 12.0f, 6.5f);
+        g.DrawRectangle(&pen, cx - 4.0f, cy - 6.0f, 8.0f, 3.5f);
+        g.DrawLine(&pen, cx - 3.5f, cy + 6.0f, cx + 3.5f, cy + 6.0f);
+        break;
+    case ICON_TRANSLATE:
+        g.DrawRectangle(&pen, cx - 6.5f, cy - 6.0f, 8.0f, 8.0f);
+        g.DrawRectangle(&pen, cx - 1.5f, cy - 1.5f, 8.0f, 8.0f);
+        break;
+    case ICON_SCREENSHOT:
+        g.DrawLine(&pen, cx - 5.5f, cy - 2.5f, cx - 5.5f, cy - 5.5f);
+        g.DrawLine(&pen, cx - 5.5f, cy - 5.5f, cx - 2.5f, cy - 5.5f);
+        g.DrawLine(&pen, cx + 5.5f, cy - 2.5f, cx + 5.5f, cy - 5.5f);
+        g.DrawLine(&pen, cx + 5.5f, cy - 5.5f, cx + 2.5f, cy - 5.5f);
+        g.DrawLine(&pen, cx - 5.5f, cy + 2.5f, cx - 5.5f, cy + 5.5f);
+        g.DrawLine(&pen, cx - 5.5f, cy + 5.5f, cx - 2.5f, cy + 5.5f);
+        g.DrawLine(&pen, cx + 5.5f, cy + 2.5f, cx + 5.5f, cy + 5.5f);
+        g.DrawLine(&pen, cx + 5.5f, cy + 5.5f, cx + 2.5f, cy + 5.5f);
+        break;
+    case ICON_FIND:
+        g.DrawRectangle(&pen, cx - 5.5f, cy - 5.5f, 8.0f, 11.0f);
+        g.DrawEllipse(&pen, cx + 0.5f, cy + 0.5f, 4.5f, 4.5f);
+        break;
+    case ICON_SETTINGS: {
+        g.DrawEllipse(&pen, cx - 2.8f, cy - 2.8f, 5.6f, 5.6f);
+        for (int a = 0; a < 6; ++a) {
+            REAL rad = a * 60.0f * 3.14159265f / 180.0f;
+            g.DrawLine(&pen, cx + cosf(rad) * 4.2f, cy + sinf(rad) * 4.2f, cx + cosf(rad) * 7.0f, cy + sinf(rad) * 7.0f);
+        }
+        break;
+    }
+    case ICON_HELP:
+        g.DrawEllipse(&pen, cx - 5.5f, cy - 5.5f, 11.0f, 11.0f);
+        g.DrawLine(&pen, cx, cy - 2.5f, cx + 1.5f, cy - 2.5f);
+        g.DrawLine(&pen, cx + 1.5f, cy - 2.5f, cx, cy);
+        g.DrawLine(&pen, cx, cy + 2.0f, cx, cy + 3.0f);
+        break;
+    default:
+        break;
+    }
+}
+
+void ExecuteInAppAction(InAppActionId action) {
+    switch (action) {
+    case INAPP_ACT_NEW_TAB:
+        CreateNewTab(L"about:blank");
+        break;
+    case INAPP_ACT_NEW_WINDOW: {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        ShellExecuteW(nullptr, L"open", exePath, nullptr, nullptr, SW_SHOWNORMAL);
+        break;
+    }
+    case INAPP_ACT_NEW_INPRIVATE:
+        CreateNewTab(L"about:blank");
+        break;
+    case INAPP_ACT_FAVORITES:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://favorites");
+        }
+        break;
+    case INAPP_ACT_HISTORY:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://history");
+        }
+        break;
+    case INAPP_ACT_DOWNLOADS:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->Navigate(L"edge://downloads");
+        }
+        break;
+    case INAPP_ACT_PRINT:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            g_tabs[g_activeTabIndex]->webview->ExecuteScript(L"window.print();", nullptr);
+        }
+        break;
+    case INAPP_ACT_FIND:
+        if (g_hEdit) {
+            SetFocus(g_hEdit);
+            SendMessage(g_hEdit, EM_SETSEL, 0, -1);
+        }
+        break;
+    case INAPP_ACT_SETTINGS:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            if (!g_settingsPageUrl.empty()) {
+                g_tabs[g_activeTabIndex]->webview->Navigate(g_settingsPageUrl.c_str());
+            } else {
+                g_tabs[g_activeTabIndex]->webview->Navigate(L"haze://settings");
+            }
+        }
+        break;
+    case INAPP_ACT_CLOSE:
+        PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+LRESULT CALLBACK InAppMenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-
         RECT rcClient;
         GetClientRect(hWnd, &rcClient);
 
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
-        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        // Background pure white
+        // WinUI 3 Pure White card background with subtle inner border
         SolidBrush bgBrush(Color(255, 255, 255, 255));
-        g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
+        g.FillRectangle(&bgBrush, 0, 0, rcClient.right, rcClient.bottom);
 
-        // Rounded border
-        GraphicsPath path;
-        AddRoundedRect(path, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 12.0f);
-        Pen borderPen(Color(255, 222, 224, 228), 1.2f);
-        g.DrawPath(&borderPen, &path);
+        Pen borderPen(Color(255, 228, 230, 235), 1.0f);
+        g.DrawRectangle(&borderPen, 0, 0, rcClient.right - 1, rcClient.bottom - 1);
 
-        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
-        if (pFontFamily->GetLastStatus() != Ok) {
-            delete pFontFamily;
-            pFontFamily = new FontFamily(L"Segoe UI");
+        FontFamily* pFontFamily = nullptr;
+        FontFamily testFam(L"Segoe UI Variable Text");
+        if (testFam.GetLastStatus() == Ok) {
+            pFontFamily = new FontFamily(L"Segoe UI Variable Text");
+        } else {
+            FontFamily testFam2(L"Segoe UI");
+            if (testFam2.GetLastStatus() == Ok) {
+                pFontFamily = new FontFamily(L"Segoe UI");
+            } else {
+                pFontFamily = FontFamily::GenericSansSerif()->Clone();
+            }
         }
-        Gdiplus::Font headerFont(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font itemFont(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font itemSelectedFont(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
 
-        // Draw "Search with:" Header
-        SolidBrush headerBrush(Color(255, 100, 103, 107));
-        StringFormat headerFormat;
-        headerFormat.SetAlignment(StringAlignmentNear);
-        headerFormat.SetLineAlignment(StringAlignmentCenter);
-        RectF headerRc(16.0f, 10.0f, (REAL)ENGINE_DROPDOWN_WIDTH - 32.0f, (REAL)ENGINE_HEADER_HEIGHT);
-        g.DrawString(L"Search with:", -1, &headerFont, headerRc, &headerFormat, &headerBrush);
+        Gdiplus::Font fontLabel(pFontFamily, 9.75f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontShortcut(pFontFamily, 9.0f, FontStyleRegular, UnitPoint);
 
-        StringFormat strFormat;
-        strFormat.SetAlignment(StringAlignmentNear);
-        strFormat.SetLineAlignment(StringAlignmentCenter);
+        // WinUI 3 Light Theme typography & state colors
+        SolidBrush textBrush(Color(255, 26, 26, 26));       // TextPrimary #1A1A1A
+        SolidBrush shortcutBrush(Color(255, 100, 100, 100)); // Subdued secondary text
+        SolidBrush hoverBrush(Color(255, 243, 244, 246));    // Subtle hover gray #F3F4F6
+        SolidBrush subBtnHoverBrush(Color(255, 232, 234, 238));
+        Pen sepPen(Color(255, 234, 236, 240), 1.0f);        // Subtle divider
+        Color iconCol(255, 60, 64, 72);                     // Modern neutral dark icon color
 
-        // Draw Search Engines List
-        for (size_t i = 0; i < g_searchEngines.size(); ++i) {
-            const auto& eng = g_searchEngines[i];
-            RECT itemRc = GetEngineItemRect((int)i);
-            bool isHover = ((int)i == g_engineDropdownHoveredIndex);
-            bool isSelected = ((int)i == g_selectedEngineIndex);
+        StringFormat strLeft;
+        strLeft.SetAlignment(StringAlignmentNear);
+        strLeft.SetLineAlignment(StringAlignmentCenter);
 
-            if (isHover || isSelected) {
+        StringFormat strRight;
+        strRight.SetAlignment(StringAlignmentFar);
+        strRight.SetLineAlignment(StringAlignmentCenter);
+
+        StringFormat strCenter;
+        strCenter.SetAlignment(StringAlignmentCenter);
+        strCenter.SetLineAlignment(StringAlignmentCenter);
+
+        for (int i = 0; i < (int)g_inAppItems.size(); ++i) {
+            const auto& item = g_inAppItems[i];
+            RECT rc = GetInAppItemRect(i);
+            REAL rx = (REAL)rc.left;
+            REAL ry = (REAL)rc.top;
+            REAL rw = (REAL)(rc.right - rc.left);
+            REAL rh = (REAL)(rc.bottom - rc.top);
+
+            if (item.type == INAPP_ITEM_SEPARATOR) {
+                REAL midY = ry + (rh / 2.0f);
+                g.DrawLine(&sepPen, rx + 10.0f, midY, rx + rw - 10.0f, midY);
+                continue;
+            }
+
+            if (item.type == INAPP_ITEM_ZOOM_ROW) {
+                // Zoom icon
+                DrawInAppIcon(g, ICON_ZOOM, rx + 20.0f, ry + (rh / 2.0f), iconCol);
+
+                // "Zoom" text
+                RectF zoomTextRc(rx + 42.0f, ry, 68.0f, rh);
+                g.DrawString(L"Zoom", -1, &fontLabel, zoomTextRc, &strLeft, &textBrush);
+
+                // Controls area
+                REAL btnW = 32.0f;
+                REAL btnH = 28.0f;
+                REAL btnY = ry + (rh - btnH) / 2.0f;
+
+                REAL xMinus = rx + rw - 164.0f;
+                REAL xPct = xMinus + btnW + 2.0f;
+                REAL xPlus = xPct + 56.0f + 2.0f;
+                REAL xFull = xPlus + btnW + 10.0f;
+
+                // Minus button [-]
+                if (g_zoomHoveredBtn == 1) {
+                    GraphicsPath bp;
+                    bp.AddArc(xMinus, btnY, 6.0f, 6.0f, 180.0f, 90.0f);
+                    bp.AddArc(xMinus + btnW - 6.0f, btnY, 6.0f, 6.0f, 270.0f, 90.0f);
+                    bp.AddArc(xMinus + btnW - 6.0f, btnY + btnH - 6.0f, 6.0f, 6.0f, 0.0f, 90.0f);
+                    bp.AddArc(xMinus, btnY + btnH - 6.0f, 6.0f, 6.0f, 90.0f, 90.0f);
+                    bp.CloseFigure();
+                    g.FillPath(&subBtnHoverBrush, &bp);
+                }
+                Pen ctlPen(iconCol, 1.4f);
+                ctlPen.SetStartCap(LineCapRound);
+                ctlPen.SetEndCap(LineCapRound);
+                g.DrawLine(&ctlPen, xMinus + (btnW / 2.0f) - 5.0f, ry + (rh / 2.0f), xMinus + (btnW / 2.0f) + 5.0f, ry + (rh / 2.0f));
+
+                // Zoom percentage text
+                int zoomPct = 100;
+                if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+                    double z = 1.0;
+                    g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&z);
+                    zoomPct = (int)round(z * 100.0);
+                }
+                std::wstring zoomStr = std::to_wstring(zoomPct) + L"%";
+                RectF pctRc(xPct, ry, 56.0f, rh);
+                StringFormat strZoomCenter;
+                strZoomCenter.SetAlignment(StringAlignmentCenter);
+                strZoomCenter.SetLineAlignment(StringAlignmentCenter);
+                strZoomCenter.SetFormatFlags(StringFormatFlagsNoWrap);
+                g.DrawString(zoomStr.c_str(), -1, &fontLabel, pctRc, &strZoomCenter, &textBrush);
+
+                // Plus button [+]
+                if (g_zoomHoveredBtn == 2) {
+                    GraphicsPath bp;
+                    bp.AddArc(xPlus, btnY, 6.0f, 6.0f, 180.0f, 90.0f);
+                    bp.AddArc(xPlus + btnW - 6.0f, btnY, 6.0f, 6.0f, 270.0f, 90.0f);
+                    bp.AddArc(xPlus + btnW - 6.0f, btnY + btnH - 6.0f, 6.0f, 6.0f, 0.0f, 90.0f);
+                    bp.AddArc(xPlus, btnY + btnH - 6.0f, 6.0f, 6.0f, 90.0f, 90.0f);
+                    bp.CloseFigure();
+                    g.FillPath(&subBtnHoverBrush, &bp);
+                }
+                REAL pcx = xPlus + (btnW / 2.0f), pcy = ry + (rh / 2.0f);
+                g.DrawLine(&ctlPen, pcx - 5.0f, pcy, pcx + 5.0f, pcy);
+                g.DrawLine(&ctlPen, pcx, pcy - 5.0f, pcx, pcy + 5.0f);
+
+                // Fullscreen button
+                REAL btnFullW = 24.0f;
+                if (g_zoomHoveredBtn == 3) {
+                    GraphicsPath bp;
+                    bp.AddArc(xFull, btnY, 6.0f, 6.0f, 180.0f, 90.0f);
+                    bp.AddArc(xFull + btnFullW - 6.0f, btnY, 6.0f, 6.0f, 270.0f, 90.0f);
+                    bp.AddArc(xFull + btnFullW - 6.0f, btnY + btnH - 6.0f, 6.0f, 6.0f, 0.0f, 90.0f);
+                    bp.AddArc(xFull, btnY + btnH - 6.0f, 6.0f, 6.0f, 90.0f, 90.0f);
+                    bp.CloseFigure();
+                    g.FillPath(&subBtnHoverBrush, &bp);
+                }
+                REAL fcx = xFull + (btnFullW / 2.0f), fcy = ry + (rh / 2.0f);
+                g.DrawLine(&ctlPen, fcx - 4.5f, fcy + 4.5f, fcx + 4.5f, fcy - 4.5f);
+                g.DrawLine(&ctlPen, fcx + 1.5f, fcy - 4.5f, fcx + 4.5f, fcy - 4.5f);
+                g.DrawLine(&ctlPen, fcx + 4.5f, fcy - 4.5f, fcx + 4.5f, fcy - 1.5f);
+                g.DrawLine(&ctlPen, fcx - 1.5f, fcy + 4.5f, fcx - 4.5f, fcy + 4.5f);
+                g.DrawLine(&ctlPen, fcx - 4.5f, fcy + 4.5f, fcx - 4.5f, fcy + 1.5f);
+                continue;
+            }
+
+            // Normal Item
+            bool isHover = (i == g_inAppHoveredIndex);
+            if (isHover) {
                 GraphicsPath hoverPath;
-                AddRoundedRect(hoverPath, (REAL)itemRc.left, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left), (REAL)(itemRc.bottom - itemRc.top - 4), 8.0f);
-                Color hoverCol = isSelected ? Color(255, 240, 244, 252) : Color(255, 245, 246, 248);
-                SolidBrush hBrush(hoverCol);
-                g.FillPath(&hBrush, &hoverPath);
+                REAL hx = rx + 2.0f;
+                REAL hy = ry + 1.5f;
+                REAL hw = rw - 4.0f;
+                REAL hh = rh - 3.0f;
+                REAL cr = 5.0f; // WinUI 3 rounded pill hover
+                hoverPath.AddArc(hx, hy, cr * 2.0f, cr * 2.0f, 180.0f, 90.0f);
+                hoverPath.AddArc(hx + hw - cr * 2.0f, hy, cr * 2.0f, cr * 2.0f, 270.0f, 90.0f);
+                hoverPath.AddArc(hx + hw - cr * 2.0f, hy + hh - cr * 2.0f, cr * 2.0f, cr * 2.0f, 0.0f, 90.0f);
+                hoverPath.AddArc(hx, hy + hh - cr * 2.0f, cr * 2.0f, cr * 2.0f, 90.0f, 90.0f);
+                hoverPath.CloseFigure();
+                g.FillPath(&hoverBrush, &hoverPath);
             }
 
-            // Draw Engine Logo
-            if (eng.pBitmap) {
-                REAL iconY = itemRc.top + ((itemRc.bottom - itemRc.top - 20) / 2.0f);
-                g.DrawImage(eng.pBitmap, (REAL)itemRc.left + 10.0f, iconY, 20.0f, 20.0f);
+            // Draw Icon if present
+            if (item.icon != ICON_NONE) {
+                DrawInAppIcon(g, item.icon, rx + 20.0f, ry + (rh / 2.0f), iconCol);
             }
 
-            // Draw Engine Name
-            Color textCol = isSelected ? Color(255, 26, 115, 232) : Color(255, 32, 33, 36);
-            SolidBrush textBrush(textCol);
-            RectF layoutRect((REAL)itemRc.left + 38.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 46.0f), (REAL)(itemRc.bottom - itemRc.top));
-            g.DrawString(eng.name.c_str(), -1, isSelected ? &itemSelectedFont : &itemFont, layoutRect, &strFormat, &textBrush);
+            // Draw Label
+            REAL textLeft = (item.icon != ICON_NONE) ? rx + 42.0f : rx + 16.0f;
+            if (item.action == INAPP_ACT_CLOSE) textLeft = rx + 16.0f;
+            RectF textRc(textLeft, ry, rw - textLeft - 8.0f, rh);
+            g.DrawString(item.label.c_str(), -1, &fontLabel, textRc, &strLeft, &textBrush);
+
+            // Draw Sub-menu / chevron if present (no keyboard shortcuts)
+            if (!item.shortcutOrFlyout.empty()) {
+                RectF scRc(rx + 14.0f, ry, rw - 24.0f, rh);
+                g.DrawString(item.shortcutOrFlyout.c_str(), -1, &fontShortcut, scRc, &strRight, &shortcutBrush);
+            }
         }
 
         delete pFontFamily;
@@ -1782,9 +2230,23 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
     }
     case WM_MOUSEMOVE: {
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
-        int newHover = GetEngineItemFromPoint(pt);
-        if (newHover != g_engineDropdownHoveredIndex) {
-            g_engineDropdownHoveredIndex = newHover;
+        int newHover = GetInAppItemFromPoint(pt);
+        int newZoomBtn = 0;
+
+        if (newHover >= 0 && newHover < (int)g_inAppItems.size() && g_inAppItems[newHover].type == INAPP_ITEM_ZOOM_ROW) {
+            RECT rc = GetInAppItemRect(newHover);
+            int rw = rc.right - rc.left;
+            int xMinus = rc.left + rw - 164;
+            int xPlus = xMinus + 32 + 2 + 56 + 2;
+            int xFull = xPlus + 32 + 10;
+            if (pt.x >= xMinus && pt.x <= xMinus + 32) newZoomBtn = 1;
+            else if (pt.x >= xPlus && pt.x <= xPlus + 32) newZoomBtn = 2;
+            else if (pt.x >= xFull && pt.x <= xFull + 28) newZoomBtn = 3;
+        }
+
+        if (newHover != g_inAppHoveredIndex || newZoomBtn != g_zoomHoveredBtn) {
+            g_inAppHoveredIndex = newHover;
+            g_zoomHoveredBtn = newZoomBtn;
             InvalidateRect(hWnd, nullptr, FALSE);
 
             TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
@@ -1793,33 +2255,68 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
     case WM_MOUSELEAVE: {
-        if (g_engineDropdownHoveredIndex != -1) {
-            g_engineDropdownHoveredIndex = -1;
+        if (g_inAppHoveredIndex != -1 || g_zoomHoveredBtn != 0) {
+            g_inAppHoveredIndex = -1;
+            g_zoomHoveredBtn = 0;
             InvalidateRect(hWnd, nullptr, FALSE);
         }
         return 0;
     }
     case WM_LBUTTONUP: {
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
-        int clickedIdx = GetEngineItemFromPoint(pt);
-        ShowWindow(hWnd, SW_HIDE);
-        if (clickedIdx >= 0 && clickedIdx < (int)g_searchEngines.size()) {
-            g_selectedEngineIndex = clickedIdx;
-            UpdateOmniboxCueBanner();
-            if (g_hBtnEngine) InvalidateRect(g_hBtnEngine, nullptr, TRUE);
-            if (g_hEdit) {
-                SetFocus(g_hEdit);
-                SendMessage(g_hEdit, EM_SETSEL, 0, -1);
-            }
-            // Broadcast engine selection to all open tabs (homepage and settings)
-            std::wstring engMsg = L"{\"type\":\"sync_state\",\"engine\":" + std::to_wstring(g_selectedEngineIndex) + L"}";
-            for (auto& t : g_tabs) {
-                if (t->webview) {
-                    t->webview->PostWebMessageAsJson(engMsg.c_str());
+        int clickedIdx = GetInAppItemFromPoint(pt);
+        if (clickedIdx >= 0 && clickedIdx < (int)g_inAppItems.size()) {
+            const auto& item = g_inAppItems[clickedIdx];
+            if (item.type == INAPP_ITEM_ZOOM_ROW) {
+                RECT rc = GetInAppItemRect(clickedIdx);
+                int rw = rc.right - rc.left;
+                int xMinus = rc.left + rw - 164;
+                int xPlus = xMinus + 32 + 2 + 56 + 2;
+                int xFull = xPlus + 32 + 10;
+                if (pt.x >= xMinus && pt.x <= xMinus + 32) {
+                    // Zoom Out
+                    if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+                        double z = 1.0;
+                        g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&z);
+                        z -= 0.1;
+                        if (z < 0.25) z = 0.25;
+                        g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(z);
+                        InvalidateRect(hWnd, nullptr, FALSE);
+                    }
+                    return 0;
                 }
+                else if (pt.x >= xPlus && pt.x <= xPlus + 32) {
+                    // Zoom In
+                    if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+                        double z = 1.0;
+                        g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&z);
+                        z += 0.1;
+                        if (z > 5.0) z = 5.0;
+                        g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(z);
+                        InvalidateRect(hWnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                else if (pt.x >= xFull && pt.x <= xFull + 28) {
+                    // Fullscreen
+                    ShowWindow(hWnd, SW_HIDE);
+                    ShowWindow(g_hWnd, IsZoomed(g_hWnd) ? SW_RESTORE : SW_MAXIMIZE);
+                    return 0;
+                }
+                return 0;
             }
+
+            ShowWindow(hWnd, SW_HIDE);
+            ExecuteInAppAction(item.action);
         }
         return 0;
+    }
+    case WM_KEYDOWN: {
+        if (wParam == VK_ESCAPE) {
+            ShowWindow(hWnd, SW_HIDE);
+            return 0;
+        }
+        break;
     }
     case WM_KILLFOCUS:
         ShowWindow(hWnd, SW_HIDE);
@@ -1830,86 +2327,52 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-void ShowEngineDropdown() {
-    if (!g_hEngineDropdownWnd || !g_hBtnEngine) return;
-
-    RECT btnRc;
-    GetWindowRect(g_hBtnEngine, &btnRc);
-
-    int menuW = ENGINE_DROPDOWN_WIDTH;
-    int menuH = CalculateEngineDropdownHeight();
-
-    RECT workArea;
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
-
-    int posX = btnRc.left - 6;
-    if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
-    if (posX < workArea.left) posX = workArea.left + 10;
-
-    int posY = btnRc.bottom + 6;
-    if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
-
-    g_engineDropdownHoveredIndex = -1;
-
-    SetWindowPos(g_hEngineDropdownWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
-    SetForegroundWindow(g_hEngineDropdownWnd);
-    SetFocus(g_hEngineDropdownWnd);
-    InvalidateRect(g_hEngineDropdownWnd, nullptr, TRUE);
-}
-
 void ShowSettingsDropdown() {
-    if (!g_hMenuWnd) return;
+    if (!g_hInAppMenuWnd) return;
 
-    int menuW = MENU_WIDTH;
-    int menuH = CalculateMenuHeight();
+    POINT cursor;
+    GetCursorPos(&cursor);
+
+    int menuW = INAPP_MENU_WIDTH;
+    int menuH = CalculateInAppMenuHeight();
 
     RECT workArea;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
 
-    int posX = 0;
-    int posY = 0;
-
-    if (g_hBtnSettings && IsWindowVisible(g_hBtnSettings)) {
+    int posX = cursor.x - menuW / 2;
+    if (g_hBtnSettings) {
         RECT btnRc;
         GetWindowRect(g_hBtnSettings, &btnRc);
-        posX = btnRc.right - menuW + 8;
-        posY = btnRc.bottom + 6;
-    } else if (g_hWnd) {
-        RECT winRc;
-        GetWindowRect(g_hWnd, &winRc);
-        posX = winRc.right - menuW - 20;
-        posY = winRc.top + TOP_BAR_HEIGHT + 4;
+        posX = btnRc.right - menuW;
+        int posY = btnRc.bottom + 6;
+        if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+
+        if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
+        if (posX < workArea.left) posX = workArea.left + 10;
+
+        g_inAppHoveredIndex = -1;
+        g_zoomHoveredBtn = 0;
+
+        SetWindowPos(g_hInAppMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+        SetForegroundWindow(g_hInAppMenuWnd);
+        SetFocus(g_hInAppMenuWnd);
+        InvalidateRect(g_hInAppMenuWnd, nullptr, TRUE);
+        return;
     }
 
     if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
     if (posX < workArea.left) posX = workArea.left + 10;
-    if (posY + menuH > workArea.bottom) posY = workArea.bottom - menuH - 10;
 
-    g_hoveredIndex = -1;
+    int posY = cursor.y + 10;
+    if (posY + menuH > workArea.bottom) posY = cursor.y - menuH - 10;
 
-    SetWindowPos(g_hMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
-    SetForegroundWindow(g_hMenuWnd);
-    SetFocus(g_hMenuWnd);
-    InvalidateRect(g_hMenuWnd, nullptr, TRUE);
-}
+    g_inAppHoveredIndex = -1;
+    g_zoomHoveredBtn = 0;
 
-void SetupMenuItems() {
-    g_gridItems = {
-        // Row 1: Tab & Window & Home
-        { L"New Tab",    ACTION_NEW_TAB,    GRID_ICON_NEW_TAB },
-        { L"New Window", ACTION_NEW_WINDOW, GRID_ICON_NEW_WINDOW },
-        { L"Home",       ACTION_OPEN_HAZE,  GRID_ICON_HOME },
-
-        // Row 2: Browsing & Tools
-        { L"History",    ACTION_HISTORY,    GRID_ICON_HISTORY },
-        { L"Downloads",  ACTION_DOWNLOADS,  GRID_ICON_DOWNLOADS },
-        { L"Print",      ACTION_PRINT,      GRID_ICON_PRINT },
-
-        // Row 3: Zoom, Settings, Close
-        { L"Zoom In",    ACTION_ZOOM_IN,    GRID_ICON_ZOOM },
-        { L"Settings",   ACTION_SETTINGS,   GRID_ICON_SETTINGS },
-        { L"Close",      ACTION_QUIT,       GRID_ICON_QUIT }
-    };
+    SetWindowPos(g_hInAppMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_hInAppMenuWnd);
+    SetFocus(g_hInAppMenuWnd);
+    InvalidateRect(g_hInAppMenuWnd, nullptr, TRUE);
 }
 
 // --------------------------------------------------------------------------
@@ -1921,9 +2384,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g_hWnd = hWnd;
         static HFONT s_editFont = nullptr;
         if (!s_editFont) {
-            s_editFont = CreateFontW(-MulDiv(15, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            s_editFont = CreateFontW(-MulDiv(13, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, GetModernFontFamilyName());
         }
 
         g_hBtnBack = CreateWindowExW(
@@ -2236,14 +2699,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         SolidBrush omniboxBgBrush(omniBgCol);
         g.FillPath(&omniboxBgBrush, &sbPath);
 
-        Color borderColor;
-        if (g_isDarkMode) {
-            borderColor = g_isEditFocused ? Color(255, 176, 167, 56) : Color(255, 62, 62, 76);
-        } else {
-            borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
+        // Outline around the address bar is visible ONLY when active/focused
+        if (g_isEditFocused) {
+            Color borderColor = g_isDarkMode ? Color(255, 176, 167, 56) : Color(255, 118, 112, 27);
+            Pen borderPen(borderColor, 1.8f);
+            g.DrawPath(&borderPen, &sbPath);
         }
-        Pen borderPen(borderColor, 1.6f);
-        g.DrawPath(&borderPen, &sbPath);
 
         // 5. Title bar Minimize, Maximize, Close Buttons on extreme right
         RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
@@ -2376,17 +2837,46 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_SETCURSOR: {
-        if ((HWND)wParam == hWnd) {
-            POINT pt;
-            GetCursorPos(&pt);
-            ScreenToClient(hWnd, &pt);
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-            RECT sb = GetSearchBarOuterRect(rc.right - rc.left);
-            if (PtInRect(&sb, pt)) {
-                SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+        WORD hitTest = LOWORD(lParam);
+        switch (hitTest) {
+        case HTLEFT:
+        case HTRIGHT:
+            SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+            return TRUE;
+        case HTTOP:
+        case HTBOTTOM:
+            SetCursor(LoadCursor(nullptr, IDC_SIZENS));
+            return TRUE;
+        case HTTOPLEFT:
+        case HTBOTTOMRIGHT:
+            SetCursor(LoadCursor(nullptr, IDC_SIZENWSE));
+            return TRUE;
+        case HTTOPRIGHT:
+        case HTBOTTOMLEFT:
+            SetCursor(LoadCursor(nullptr, IDC_SIZENESW));
+            return TRUE;
+        case HTCAPTION:
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            return TRUE;
+        case HTCLIENT: {
+            if ((HWND)wParam == hWnd) {
+                POINT pt;
+                GetCursorPos(&pt);
+                ScreenToClient(hWnd, &pt);
+                RECT rc;
+                GetClientRect(hWnd, &rc);
+                RECT sb = GetSearchBarOuterRect(rc.right - rc.left);
+                if (PtInRect(&sb, pt)) {
+                    SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+                    return TRUE;
+                }
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
                 return TRUE;
             }
+            break;
+        }
+        default:
+            break;
         }
         break;
     }
@@ -2575,27 +3065,49 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     }
 
     LoadSearchEngineIcons();
-    SetupMenuItems();
+    SetupTrayMenuItems();
+    SetupInAppMenuItems();
 
-    // Register WinUI 3 Tray Menu Class
+    // Register WinUI 3 Tray Menu Class (media 1)
     WNDCLASSEXW wmc{ sizeof(WNDCLASSEXW) };
     wmc.style = CS_HREDRAW | CS_VREDRAW;
-    wmc.lpfnWndProc = MenuWndProc;
+    wmc.lpfnWndProc = TrayMenuWndProc;
     wmc.hInstance = hInstance;
     wmc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wmc.lpszClassName = L"HazeWinUI3MenuClass";
+    wmc.lpszClassName = L"HazeTrayMenuClass";
     RegisterClassExW(&wmc);
 
-    g_hMenuWnd = CreateWindowExW(
+    g_hTrayMenuWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        L"HazeWinUI3MenuClass", L"",
+        L"HazeTrayMenuClass", L"",
         WS_POPUP,
-        0, 0, MENU_WIDTH, CalculateMenuHeight(),
+        0, 0, TRAY_MENU_WIDTH, CalculateTrayMenuHeight(),
         nullptr, nullptr, hInstance, nullptr);
 
-    if (g_hMenuWnd) {
+    if (g_hTrayMenuWnd) {
         DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-        DwmSetWindowAttribute(g_hMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+        DwmSetWindowAttribute(g_hTrayMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    }
+
+    // Register In-App Microsoft Edge Style Menu Class (media 2)
+    WNDCLASSEXW winc{ sizeof(WNDCLASSEXW) };
+    winc.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
+    winc.lpfnWndProc = InAppMenuWndProc;
+    winc.hInstance = hInstance;
+    winc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    winc.lpszClassName = L"HazeInAppMenuClass";
+    RegisterClassExW(&winc);
+
+    g_hInAppMenuWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"HazeInAppMenuClass", L"",
+        WS_POPUP,
+        0, 0, INAPP_MENU_WIDTH, CalculateInAppMenuHeight(),
+        nullptr, nullptr, hInstance, nullptr);
+
+    if (g_hInAppMenuWnd) {
+        DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(g_hInAppMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
     }
 
     // Register Search Engine Dropdown Class
@@ -2662,7 +3174,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wcex.hInstance = hInstance;
     wcex.hIcon = g_hAppIcon;
     wcex.hIconSm = g_hAppIcon;
-    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hCursor = nullptr;
     wcex.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
     wcex.lpszClassName = L"HazeDesktopBrowserClass";
     RegisterClassExW(&wcex);
@@ -2698,8 +3210,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         DispatchMessage(&msg);
     }
 
-    if (g_hMenuWnd) {
-        DestroyWindow(g_hMenuWnd);
+    if (g_hTrayMenuWnd) {
+        DestroyWindow(g_hTrayMenuWnd);
+    }
+    if (g_hInAppMenuWnd) {
+        DestroyWindow(g_hInAppMenuWnd);
     }
 
     if (g_hEngineDropdownWnd) {
