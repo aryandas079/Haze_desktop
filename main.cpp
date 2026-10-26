@@ -453,15 +453,15 @@ LRESULT CALLBACK SearchButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
         // Fill background with omnibox pill warm beige
-        SolidBrush bgBrush(Color(255, 247, 237, 218));
+        SolidBrush bgBrush(Color(255, 254, 249, 235));
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         if (g_isSearchBtnHovered) {
-            SolidBrush hoverBrush(Color(255, 235, 224, 202));
+            SolidBrush hoverBrush(Color(255, 239, 230, 129));
             g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
-        Pen arrowPen(Color(255, 110, 105, 95), 2.2f);
+        Pen arrowPen(Color(255, 118, 112, 27), 2.2f);
         arrowPen.SetStartCap(LineCapRound);
         arrowPen.SetEndCap(LineCapRound);
 
@@ -511,13 +511,13 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
         // Fill background with omnibox pill warm beige
-        SolidBrush bgBrush(Color(255, 247, 237, 218));
+        SolidBrush bgBrush(Color(255, 254, 249, 235));
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
             AddRoundedRect(btnPath, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top), 8.0f);
-            SolidBrush hoverBrush(Color(255, 235, 224, 202));
+            SolidBrush hoverBrush(Color(255, 239, 230, 129));
             g.FillPath(&hoverBrush, &btnPath);
         }
 
@@ -577,8 +577,8 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         Graphics g(hdc);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
 
-        // Fill background with pure white to match toolbar
-        SolidBrush bgBrush(Color(255, 255, 255, 255));
+        // Fill background with toolbar cream color
+        SolidBrush bgBrush(Color(255, 254, 249, 235));
         g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
 
         int id = (int)GetWindowLongPtr(hWnd, GWLP_ID);
@@ -593,7 +593,7 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             }
         }
 
-        Color iconCol = enabled ? Color(255, 90, 94, 102) : Color(255, 195, 198, 204);
+        Color iconCol = enabled ? Color(255, 94, 91, 65) : Color(255, 195, 198, 204);
         Pen navPen(iconCol, 2.0f);
         navPen.SetStartCap(LineCapRound);
         navPen.SetEndCap(LineCapRound);
@@ -1354,19 +1354,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CTLCOLOREDIT: {
         HDC hdc = (HDC)wParam;
         SetTextColor(hdc, RGB(60, 58, 54));
-        // Soft beige-warm background #F7EDDA
-        SetBkColor(hdc, RGB(247, 237, 218));
-        static HBRUSH s_editBrush = CreateSolidBrush(RGB(247, 237, 218));
+        SetBkColor(hdc, RGB(254, 249, 235));
+        static HBRUSH s_editBrush = CreateSolidBrush(RGB(254, 249, 235));
         return (LRESULT)s_editBrush;
     }
     case WM_CTLCOLORBTN: {
         HWND hBtn = (HWND)lParam;
         if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
-            static HBRUSH s_pillBrush = CreateSolidBrush(RGB(247, 237, 218));
+            static HBRUSH s_pillBrush = CreateSolidBrush(RGB(254, 249, 235));
             return (LRESULT)s_pillBrush;
         }
-        static HBRUSH s_whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
-        return (LRESULT)s_whiteBrush;
+        static HBRUSH s_tbBrush = CreateSolidBrush(RGB(254, 249, 235));
+        return (LRESULT)s_tbBrush;
     }
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -1380,13 +1379,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
-        // 1. Tab strip background (#DEE1E6)
-        SolidBrush stripBrush(Color(255, 222, 225, 230));
+        // 1. Tab strip background (Sage warm olive #E9E4BE / RGB(233, 228, 190))
+        SolidBrush stripBrush(Color(255, 233, 228, 190));
         g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
 
-        // 2. Toolbar & Navigation row background (Pure white)
-        SolidBrush whiteBrush(Color(255, 255, 255, 255));
-        g.FillRectangle(&whiteBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
+        // 2. Toolbar & Navigation row background (Cream #FEF9EB / RGB(254, 249, 235))
+        SolidBrush toolbarBrush(Color(255, 254, 249, 235));
+        g.FillRectangle(&toolbarBrush, 0.0f, (REAL)TAB_BAR_HEIGHT, (REAL)width, (REAL)(TOP_BAR_HEIGHT - TAB_BAR_HEIGHT));
 
         FontFamily* pFontFamily = new FontFamily(L"Inter");
         if (pFontFamily->GetLastStatus() != Ok) {
@@ -1421,10 +1420,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             tabPath.CloseFigure();
 
             if (isActive) {
-                g.FillPath(&whiteBrush, &tabPath);
+                g.FillPath(&toolbarBrush, &tabPath);
             }
             else if (isHover) {
-                SolidBrush hoverBrush(Color(255, 232, 235, 239));
+                SolidBrush hoverBrush(Color(255, 242, 238, 208));
                 g.FillPath(&hoverBrush, &tabPath);
             }
 
@@ -1432,7 +1431,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 DrawIconEx(hdc, tabRc.left + 14, tabRc.top + 10, g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            Color textCol = isActive ? Color(255, 28, 30, 33) : Color(255, 90, 94, 100);
+            Color textCol = isActive ? Color(255, 38, 37, 29) : Color(255, 115, 112, 92);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 42.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 72.0f), (REAL)(tabRc.bottom - tabRc.top));
             g.DrawString(g_tabs[i]->title.c_str(), -1, isActive ? &tabBoldFont : &tabFont, titleRect, &strFormat, &textBrush);
@@ -1440,11 +1439,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
-                SolidBrush closeBg(Color(255, 226, 229, 235));
+                SolidBrush closeBg(Color(255, 230, 224, 184));
                 g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
             }
 
-            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 95, 99, 104), 1.6f);
+            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 115, 112, 92), 1.6f);
             closePen.SetStartCap(LineCapRound);
             closePen.SetEndCap(LineCapRound);
 
@@ -1458,10 +1457,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         // Draw crisp "+" New Tab Button
         RECT newTabRc = GetNewTabBtnRect(width);
         if (g_isHoveringNewTab) {
-            SolidBrush ntBrush(Color(255, 230, 233, 238));
+            SolidBrush ntBrush(Color(255, 222, 216, 175));
             g.FillEllipse(&ntBrush, (REAL)newTabRc.left, (REAL)newTabRc.top, (REAL)(newTabRc.right - newTabRc.left), (REAL)(newTabRc.bottom - newTabRc.top));
         }
-        Pen plusPen(Color(255, 60, 64, 67), 1.8f);
+        Pen plusPen(Color(255, 94, 91, 65), 1.8f);
         plusPen.SetStartCap(LineCapRound);
         plusPen.SetEndCap(LineCapRound);
         REAL ntcx = (newTabRc.left + newTabRc.right) / 2.0f;
@@ -1469,10 +1468,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.DrawLine(&plusPen, ntcx - 5.5f, ntcy, ntcx + 5.5f, ntcy);
         g.DrawLine(&plusPen, ntcx, ntcy - 5.5f, ntcx, ntcy + 5.5f);
 
-        // 4. Draw Pill-Shaped Rounded Search Bar (#F7EDDA background with clean subtle warm border)
+        // 4. Draw Pill-Shaped Rounded Search Bar with Olive border (#76701B / RGB(118, 112, 27))
         RECT searchRc = GetSearchBarOuterRect(width);
-        Color borderColor = g_isEditFocused ? Color(255, 205, 185, 155) : Color(255, 235, 225, 206);
-        Pen borderPen(borderColor, 1.2f);
+        Color borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
+        Pen borderPen(borderColor, 2.0f);
 
         REAL sx = (REAL)searchRc.left;
         REAL sy = (REAL)searchRc.top;
@@ -1485,7 +1484,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        SolidBrush omniboxBgBrush(Color(255, 247, 237, 218));
+        SolidBrush omniboxBgBrush(Color(255, 254, 249, 235));
         g.FillPath(&omniboxBgBrush, &sbPath);
         g.DrawPath(&borderPen, &sbPath);
 
@@ -1499,7 +1498,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SolidBrush closeHover(Color(255, 232, 17, 35));
             g.FillRectangle(&closeHover, (REAL)clsRc.left, (REAL)clsRc.top, (REAL)(clsRc.right - clsRc.left), (REAL)(clsRc.bottom - clsRc.top));
         }
-        Pen clsPen(g_hoveredCaptionBtn == CAPTION_BTN_CLOSE ? Color(255, 255, 255, 255) : Color(255, 60, 64, 67), 1.3f);
+        Pen clsPen(g_hoveredCaptionBtn == CAPTION_BTN_CLOSE ? Color(255, 255, 255, 255) : Color(255, 81, 79, 66), 1.3f);
         clsPen.SetStartCap(LineCapRound);
         clsPen.SetEndCap(LineCapRound);
         REAL clscx = (clsRc.left + clsRc.right) / 2.0f;
@@ -1509,10 +1508,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // Draw Maximize / Restore button
         if (g_hoveredCaptionBtn == CAPTION_BTN_MAXIMIZE) {
-            SolidBrush maxHover(Color(255, 230, 233, 238));
+            SolidBrush maxHover(Color(255, 222, 216, 175));
             g.FillRectangle(&maxHover, (REAL)maxRc.left, (REAL)maxRc.top, (REAL)(maxRc.right - maxRc.left), (REAL)(maxRc.bottom - maxRc.top));
         }
-        Pen maxPen(Color(255, 60, 64, 67), 1.3f);
+        Pen maxPen(Color(255, 81, 79, 66), 1.3f);
         REAL maxcx = (maxRc.left + maxRc.right) / 2.0f;
         REAL maxcy = (maxRc.top + maxRc.bottom) / 2.0f;
         WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
@@ -1521,7 +1520,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (isMaximized) {
             // Restore symbol (two overlapping squares)
             g.DrawRectangle(&maxPen, maxcx - 3.5f, maxcy - 5.5f, 8.0f, 8.0f);
-            SolidBrush fillBg(Color(255, 222, 225, 230));
+            SolidBrush fillBg(Color(255, 233, 228, 190));
             g.FillRectangle(&fillBg, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
             g.DrawRectangle(&maxPen, maxcx - 5.5f, maxcy - 3.5f, 8.0f, 8.0f);
         } else {
@@ -1531,10 +1530,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // Draw Minimize button
         if (g_hoveredCaptionBtn == CAPTION_BTN_MINIMIZE) {
-            SolidBrush minHover(Color(255, 230, 233, 238));
+            SolidBrush minHover(Color(255, 222, 216, 175));
             g.FillRectangle(&minHover, (REAL)minRc.left, (REAL)minRc.top, (REAL)(minRc.right - minRc.left), (REAL)(minRc.bottom - minRc.top));
         }
-        Pen minPen(Color(255, 60, 64, 67), 1.4f);
+        Pen minPen(Color(255, 81, 79, 66), 1.4f);
         minPen.SetStartCap(LineCapRound);
         minPen.SetEndCap(LineCapRound);
         REAL mincx = (minRc.left + minRc.right) / 2.0f;
@@ -1542,7 +1541,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.DrawLine(&minPen, mincx - 5.0f, mincy, mincx + 5.0f, mincy);
 
         // 6. Divider Line separating top bar from WebView
-        Pen divPen(Color(255, 228, 231, 236), 1.0f);
+        Pen divPen(Color(255, 225, 220, 195), 1.0f);
         g.DrawLine(&divPen, 0.0f, (REAL)TOP_BAR_HEIGHT - 1.0f, (REAL)width, (REAL)TOP_BAR_HEIGHT - 1.0f);
 
         delete pFontFamily;
