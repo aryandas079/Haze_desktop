@@ -36,7 +36,7 @@ constexpr int TAB_WIDTH = 260;
 constexpr int TAB_HEIGHT = 36;
 constexpr int TAB_TOP = (TAB_BAR_HEIGHT - TAB_HEIGHT) / 2; // 9px: perfectly centered with equal 9px gap above and below
 
-constexpr int SEARCH_BAR_HEIGHT = 38;
+constexpr int SEARCH_BAR_HEIGHT = 46; // Spacious 46px pill for clear, unclipped 15-16pt typography
 constexpr int NAV_BUTTONS_WIDTH = 132;
 
 constexpr int IDC_EDIT_URL = 101;
@@ -425,9 +425,13 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = 126; // Clean spacing after Reload button (ends at x=118)
-    int omniWidth = (int)(clientWidth * 0.70f);
-    if (omniWidth < 280) {
-        omniWidth = 280;
+    int omniWidth = (int)(clientWidth * 0.78f); // Expanded address bar width (~1.35x visual ratio)
+    if (omniWidth < 320) {
+        omniWidth = 320;
+    }
+    // Leave room on right for settings dropdown button
+    if (startX + omniWidth > clientWidth - 64) {
+        omniWidth = clientWidth - 64 - startX;
     }
     int endX = startX + omniWidth;
     int top = TAB_BAR_HEIGHT + (TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - SEARCH_BAR_HEIGHT) / 2;
@@ -444,44 +448,45 @@ void UpdateOmniboxCueBanner() {
 void ResizeControls(int width, int height) {
     if (width <= 0 || height <= 0) return;
 
-    int navY = TAB_BAR_HEIGHT + ((TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - 32) / 2);
     int navBtnSize = 32;
+    int navY = TAB_BAR_HEIGHT + ((TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - navBtnSize) / 2);
     if (g_hBtnBack)    SetWindowPos(g_hBtnBack, nullptr, 14, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     if (g_hBtnForward) SetWindowPos(g_hBtnForward, nullptr, 50, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     if (g_hBtnReload)  SetWindowPos(g_hBtnReload, nullptr, 86, navY, navBtnSize, navBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Search Bar layout (always takes 70% of browser window width)
+    // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
 
     // Engine selector button with icon + dropdown caret inside pill
-    int engineBtnW = 48;
-    int engineBtnH = 28;
-    int engineBtnX = sb.left + 10;
+    int engineBtnW = 50;
+    int engineBtnH = 32;
+    int engineBtnX = sb.left + 8;
     int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnH) / 2;
 
     if (g_hBtnEngine) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    // Edit box — tall enough for 16pt text, gap after engine selector, equally vertically centered inside pill
+    // Edit box — full 30px height so 15-16pt text descenders (g, y, p, q) are never cut off
     int editX = engineBtnX + engineBtnW + 8;
-    int editW = sb.right - editX - 16;
+    int editW = sb.right - editX - 18;
     if (editW < 50) editW = 50;
 
-    int editH = 24;
-    int editY = sb.top + 4;
+    int editH = 30;
+    int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
+        SendMessage(g_hEdit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
     }
     if (g_hBtnSearch) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
 
-    // Dropdown for settings and all kept at the end of the address bar
+    // Dropdown for settings kept at the end of the address bar, vertically centered
     int settingsBtnSize = 32;
     int settingsBtnX = sb.right + 12;
-    int settingsBtnY = navY;
+    int settingsBtnY = sb.top + (SEARCH_BAR_HEIGHT - settingsBtnSize) / 2;
     if (g_hBtnSettings) {
         SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_SHOWWINDOW);
         ShowWindow(g_hBtnSettings, SW_SHOW);
@@ -568,7 +573,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         if (GetFocus() != hWnd) {
             CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
             SendMessage(hWnd, EM_SETSEL, 0, -1);
-            CreateCaret(hWnd, nullptr, 2, 20);
+            CreateCaret(hWnd, nullptr, 2, 22);
             ShowCaret(hWnd);
             return 0;
         }
@@ -577,7 +582,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     case WM_LBUTTONUP: {
         LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
         if (g_isEditFocused) {
-            CreateCaret(hWnd, nullptr, 2, 20);
+            CreateCaret(hWnd, nullptr, 2, 22);
             ShowCaret(hWnd);
         }
         return res;
@@ -585,7 +590,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     case WM_SETFOCUS: {
         g_isEditFocused = true;
         LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
-        CreateCaret(hWnd, nullptr, 2, 20);
+        CreateCaret(hWnd, nullptr, 2, 22);
         ShowCaret(hWnd);
         if (g_hWnd) {
             RECT rc;
@@ -957,16 +962,16 @@ LRESULT CALLBACK NavButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy + wing);
         }
         else if (id == IDC_BTN_RELOAD) {
-            // Authentic browser circular reload arrow matching Edge reference: ↻
-            REAL radius = 5.6f;
+            // Perfectly shaped browser circular reload arrow
+            REAL radius = 6.0f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-            g.DrawArc(&navPen, arcRect, 28.0f, 264.0f);
+            g.DrawArc(&navPen, arcRect, 40.0f, 275.0f);
 
-            // Clockwise arrowhead at top-right pointing downwards into gap
-            REAL tipX = cx + 4.2f;
-            REAL tipY = cy - 2.0f;
-            g.DrawLine(&navPen, tipX, tipY, tipX - 3.2f, tipY - 3.6f);
-            g.DrawLine(&navPen, tipX, tipY, tipX + 3.0f, tipY - 3.2f);
+            // Clockwise arrowhead at top-right end of arc (315 deg / -45 deg)
+            REAL endX = cx + radius * 0.7071f;
+            REAL endY = cy - radius * 0.7071f;
+            g.DrawLine(&navPen, endX - 4.2f, endY, endX, endY);
+            g.DrawLine(&navPen, endX, endY - 4.2f, endX, endY);
         }
 
         if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
@@ -1916,7 +1921,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g_hWnd = hWnd;
         static HFONT s_editFont = nullptr;
         if (!s_editFont) {
-            s_editFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            s_editFont = CreateFontW(-MulDiv(15, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
@@ -2028,7 +2033,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(40, 40, 50));
             return (LRESULT)s_editBrushDark;
         } else {
-            SetTextColor(hdc, RGB(60, 58, 54));
+            SetTextColor(hdc, RGB(36, 35, 30)); // Deep crisp charcoal for optimal legibility
             SetBkColor(hdc, RGB(254, 249, 235));
             if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(254, 249, 235));
             return (LRESULT)s_editBrushLight;
