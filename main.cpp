@@ -32,6 +32,8 @@ constexpr UINT WM_TRAYICON = WM_USER + 100;
 constexpr int TOP_BAR_HEIGHT = 120;
 constexpr int TAB_BAR_HEIGHT = 54;
 constexpr int TAB_WIDTH = 260;
+constexpr int TAB_HEIGHT = 36;
+constexpr int TAB_TOP = (TAB_BAR_HEIGHT - TAB_HEIGHT) / 2; // 9px: perfectly centered with equal 9px gap above and below
 
 constexpr int SEARCH_BAR_HEIGHT = 38;
 constexpr int NAV_BUTTONS_WIDTH = 132;
@@ -997,14 +999,14 @@ RECT GetCaptionBtnRect(CaptionButtonType type, int clientWidth) {
 
 RECT GetTabRect(int index, int clientWidth) {
     int x = 12 + index * (TAB_WIDTH + 8);
-    int y = 8;
-    return RECT{ x, y, x + TAB_WIDTH, TAB_BAR_HEIGHT - 6 };
+    return RECT{ x, TAB_TOP, x + TAB_WIDTH, TAB_TOP + TAB_HEIGHT };
 }
 
 RECT GetNewTabBtnRect(int clientWidth) {
     int x = 12 + (int)g_tabs.size() * (TAB_WIDTH + 8) + 16;
-    int y = 13;
-    return RECT{ x, y, x + 28, y + 28 };
+    constexpr int btnSize = 28;
+    constexpr int btnY = (TAB_BAR_HEIGHT - btnSize) / 2; // 13px: vertically centered
+    return RECT{ x, btnY, x + btnSize, btnY + btnSize };
 }
 
 RECT GetTabCloseRect(const RECT& tabRc) {
@@ -1978,9 +1980,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             bool isHover = ((int)i == g_hoveredTabIndex);
 
             REAL tx = (REAL)tabRc.left;
-            REAL ty = (REAL)tabRc.top + 2.0f;
+            REAL ty = (REAL)tabRc.top;
             REAL tw = (REAL)(tabRc.right - tabRc.left);
-            REAL th = (REAL)(tabRc.bottom - tabRc.top - 4.0f);
+            REAL th = (REAL)(tabRc.bottom - tabRc.top);
 
             GraphicsPath inPath;
             AddRoundedRect(inPath, tx, ty, tw, th, tabRadius);
@@ -2031,9 +2033,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             RECT tabRc = GetTabRect(i, width);
 
             REAL tx = (REAL)tabRc.left;
-            REAL ty = (REAL)tabRc.top + 2.0f;
+            REAL ty = (REAL)tabRc.top;
             REAL tw = (REAL)(tabRc.right - tabRc.left);
-            REAL th = (REAL)(tabRc.bottom - tabRc.top - 4.0f);
+            REAL th = (REAL)(tabRc.bottom - tabRc.top);
 
             GraphicsPath activeTabPath;
             AddRoundedRect(activeTabPath, tx, ty, tw, th, tabRadius);
@@ -2324,7 +2326,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_NCCALCSIZE: {
         if (wParam) {
-            // Remove standard window frame and caption, make client area fill entire window
+            NCCALCSIZE_PARAMS* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+            if (IsZoomed(hWnd)) {
+                // When maximized, Windows expands the window by sizing border (typically 8px).
+                // Clamp rgrc[0] to the monitor's work area so the title bar / tab strip is never clipped off-screen!
+                HMONITOR hMon = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi = { sizeof(MONITORINFO) };
+                if (GetMonitorInfo(hMon, &mi)) {
+                    params->rgrc[0] = mi.rcWork;
+                }
+            }
             return 0;
         }
         break;
@@ -2383,6 +2394,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
         lpMMI->ptMinTrackSize.x = MIN_WINDOW_WIDTH;
         lpMMI->ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+
+        HMONITOR hMon = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = { sizeof(MONITORINFO) };
+        if (GetMonitorInfo(hMon, &mi)) {
+            lpMMI->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+            lpMMI->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+            lpMMI->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+            lpMMI->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+        }
         return 0;
     }
     case WM_CLOSE: {
