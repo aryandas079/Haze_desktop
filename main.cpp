@@ -1645,6 +1645,63 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         break;
     }
+    case WM_NCCALCSIZE: {
+        if (wParam) {
+            // Remove standard window frame and caption, make client area fill entire window
+            return 0;
+        }
+        break;
+    }
+    case WM_NCHITTEST: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        ScreenToClient(hWnd, &pt);
+
+        RECT clientRc;
+        GetClientRect(hWnd, &clientRc);
+        int w = clientRc.right - clientRc.left;
+        int h = clientRc.bottom - clientRc.top;
+
+        // Resize borders (8px)
+        const int borderThickness = 8;
+        if (!IsZoomed(hWnd)) {
+            if (pt.y < borderThickness) {
+                if (pt.x < borderThickness) return HTTOPLEFT;
+                if (pt.x >= w - borderThickness) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            if (pt.y >= h - borderThickness) {
+                if (pt.x < borderThickness) return HTBOTTOMLEFT;
+                if (pt.x >= w - borderThickness) return HTBOTTOMRIGHT;
+                return HTBOTTOM;
+            }
+            if (pt.x < borderThickness) return HTLEFT;
+            if (pt.x >= w - borderThickness) return HTRIGHT;
+        }
+
+        // Inside Tab/Title bar area
+        if (pt.y < TAB_BAR_HEIGHT) {
+            // Check Caption Buttons (Minimize, Maximize, Close)
+            RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, w);
+            RECT maxRc = GetCaptionBtnRect(CAPTION_BTN_MAXIMIZE, w);
+            RECT clsRc = GetCaptionBtnRect(CAPTION_BTN_CLOSE, w);
+            if (PtInRect(&minRc, pt) || PtInRect(&maxRc, pt) || PtInRect(&clsRc, pt)) {
+                return HTCLIENT;
+            }
+
+            // Check Tabs and New Tab button
+            for (size_t i = 0; i < g_tabs.size(); ++i) {
+                RECT tabRc = GetTabRect((int)i, w);
+                if (PtInRect(&tabRc, pt)) return HTCLIENT;
+            }
+            RECT newTabRc = GetNewTabBtnRect(w);
+            if (PtInRect(&newTabRc, pt)) return HTCLIENT;
+
+            // Otherwise, anywhere else in the tab strip is draggable window caption!
+            return HTCAPTION;
+        }
+
+        return HTCLIENT;
+    }
     case WM_GETMINMAXINFO: {
         LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
         lpMMI->ptMinTrackSize.x = MIN_WINDOW_WIDTH;
@@ -1759,6 +1816,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     if (!g_hWnd) {
         return 0;
     }
+
+    // Enable native modern DWM shadow and rounded corners for custom frameless window
+    MARGINS shadowMargins = { 1, 1, 1, 1 };
+    DwmExtendFrameIntoClientArea(g_hWnd, &shadowMargins);
+    DWM_WINDOW_CORNER_PREFERENCE cornerPref = DWMWCP_ROUND;
+    DwmSetWindowAttribute(g_hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
+    SetWindowPos(g_hWnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
     if (g_hAppIcon) {
         SendMessage(g_hWnd, WM_SETICON, ICON_BIG, (LPARAM)g_hAppIcon);
