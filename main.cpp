@@ -565,9 +565,27 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
 
 // Crisp smooth vector navigation buttons (←, →, ↻) using GDI+
 LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    static HWND s_hoveredBtn = nullptr;
+
     switch (uMsg) {
     case WM_ERASEBKGND:
         return 1;
+    case WM_MOUSEMOVE: {
+        if (s_hoveredBtn != hWnd) {
+            s_hoveredBtn = hWnd;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        if (s_hoveredBtn == hWnd) {
+            s_hoveredBtn = nullptr;
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        break;
+    }
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
@@ -593,34 +611,57 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             }
         }
 
-        Color iconCol = enabled ? Color(255, 94, 91, 65) : Color(255, 195, 198, 204);
-        Pen navPen(iconCol, 2.0f);
+        // Circular hover pill highlight if enabled
+        bool isHovered = (s_hoveredBtn == hWnd);
+        if (enabled && isHovered) {
+            SolidBrush hoverBrush(Color(255, 238, 232, 210));
+            g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
+        }
+
+        Color iconCol = enabled ? Color(255, 38, 37, 29) : Color(255, 185, 182, 160);
+        Pen navPen(iconCol, 2.4f);
         navPen.SetStartCap(LineCapRound);
         navPen.SetEndCap(LineCapRound);
+        navPen.SetLineJoin(LineJoinRound);
 
         REAL cx = (rc.left + rc.right) / 2.0f;
         REAL cy = (rc.top + rc.bottom) / 2.0f;
 
         if (id == IDC_BTN_BACK) {
-            g.DrawLine(&navPen, cx + 5.5f, cy, cx - 5.5f, cy);
-            g.DrawLine(&navPen, cx - 5.5f, cy, cx - 0.5f, cy - 5.0f);
-            g.DrawLine(&navPen, cx - 5.5f, cy, cx - 0.5f, cy + 5.0f);
+            // Modern rounded back arrow matching reference image: ←
+            REAL shaftLen = 6.5f;
+            REAL wing = 5.2f;
+            // Central horizontal stem
+            g.DrawLine(&navPen, cx - shaftLen, cy, cx + shaftLen, cy);
+            // Upper and lower diagonal wings
+            g.DrawLine(&navPen, cx - shaftLen, cy, cx - shaftLen + wing, cy - wing);
+            g.DrawLine(&navPen, cx - shaftLen, cy, cx - shaftLen + wing, cy + wing);
         }
         else if (id == IDC_BTN_FORWARD) {
-            g.DrawLine(&navPen, cx - 5.5f, cy, cx + 5.5f, cy);
-            g.DrawLine(&navPen, cx + 5.5f, cy, cx + 0.5f, cy - 5.0f);
-            g.DrawLine(&navPen, cx + 5.5f, cy, cx + 0.5f, cy + 5.0f);
+            // Modern rounded forward arrow matching reference image: →
+            REAL shaftLen = 6.5f;
+            REAL wing = 5.2f;
+            // Central horizontal stem
+            g.DrawLine(&navPen, cx - shaftLen, cy, cx + shaftLen, cy);
+            // Upper and lower diagonal wings
+            g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy - wing);
+            g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy + wing);
         }
         else if (id == IDC_BTN_RELOAD) {
-            RectF arcRect(cx - 6.0f, cy - 6.0f, 12.0f, 12.0f);
-            g.DrawArc(&navPen, arcRect, 45.0f, 275.0f);
+            // Modern rounded circular arrow matching reference image: ↻
+            // Circular arc spanning ~285 degrees
+            REAL radius = 6.5f;
+            RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+            g.DrawArc(&navPen, arcRect, -30.0f, 290.0f);
 
-            SolidBrush arrowBrush(iconCol);
-            PointF pt1(cx + 5.0f, cy - 6.0f);
-            PointF pt2(cx + 9.5f, cy - 2.5f);
-            PointF pt3(cx + 4.5f, cy - 1.0f);
-            PointF pts[] = { pt1, pt2, pt3 };
-            g.FillPolygon(&arrowBrush, pts, 3);
+            // Arrow head at arc termination (~260 degrees / upper right)
+            REAL tipX = cx + radius * 0.94f;
+            REAL tipY = cy - radius * 0.35f;
+            REAL wing = 4.6f;
+
+            // Inward-pointing arrowhead wings
+            g.DrawLine(&navPen, tipX, tipY, tipX - wing, tipY - 0.5f);
+            g.DrawLine(&navPen, tipX, tipY, tipX - 0.8f, tipY + wing);
         }
 
         EndPaint(hWnd, &ps);
