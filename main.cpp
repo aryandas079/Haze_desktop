@@ -94,6 +94,15 @@ struct BrowserTab {
     wil::com_ptr<ICoreWebView2Controller> controller;
     wil::com_ptr<ICoreWebView2> webview;
     bool isLoaded = false;
+    Gdiplus::Bitmap* pFaviconBitmap = nullptr;
+    EventRegistrationToken faviconToken{};
+
+    ~BrowserTab() {
+        if (pFaviconBitmap) {
+            delete pFaviconBitmap;
+            pFaviconBitmap = nullptr;
+        }
+    }
 };
 
 // Globals
@@ -1243,6 +1252,49 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                         return S_OK;
                                     }).Get(), nullptr);
 
+                            // Listen for Favicon changes via ICoreWebView2_15
+                            BrowserTab* pTabRaw = tab.get();
+                            wil::com_ptr<ICoreWebView2_15> webview15;
+                            if (SUCCEEDED(tab->webview->QueryInterface(IID_PPV_ARGS(&webview15)))) {
+                                webview15->add_FaviconChanged(
+                                    Callback<ICoreWebView2FaviconChangedEventHandler>(
+                                        [hWnd, pTabRaw](ICoreWebView2* sender, IUnknown*) -> HRESULT {
+                                            wil::com_ptr<ICoreWebView2_15> sender15;
+                                            if (SUCCEEDED(sender->QueryInterface(IID_PPV_ARGS(&sender15)))) {
+                                                sender15->GetFavicon(
+                                                    COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
+                                                    Callback<ICoreWebView2GetFaviconCompletedHandler>(
+                                                        [hWnd, pTabRaw](HRESULT errorCode, IStream* faviconStream) -> HRESULT {
+                                                            if (SUCCEEDED(errorCode) && faviconStream) {
+                                                                // Verify pTabRaw is still a valid active tab in g_tabs
+                                                                bool valid = false;
+                                                                for (const auto& t : g_tabs) {
+                                                                    if (t.get() == pTabRaw) {
+                                                                        valid = true;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                                if (valid) {
+                                                                    Gdiplus::Bitmap* pBmp = Gdiplus::Bitmap::FromStream(faviconStream);
+                                                                    if (pBmp && pBmp->GetLastStatus() == Gdiplus::Ok) {
+                                                                        if (pTabRaw->pFaviconBitmap) {
+                                                                            delete pTabRaw->pFaviconBitmap;
+                                                                        }
+                                                                        pTabRaw->pFaviconBitmap = pBmp;
+                                                                        RECT topRc{ 0, 0, 2000, TAB_BAR_HEIGHT };
+                                                                        InvalidateRect(hWnd, &topRc, FALSE);
+                                                                    } else if (pBmp) {
+                                                                        delete pBmp;
+                                                                    }
+                                                                }
+                                                            }
+                                                            return S_OK;
+                                                        }).Get());
+                                            }
+                                            return S_OK;
+                                        }).Get(), &tab->faviconToken);
+                            }
+
                             tab->isLoaded = true;
 
                             if (initialUrl.empty() || initialUrl == L"about:blank") {
@@ -1271,6 +1323,10 @@ void CloseTab(int index) {
     if (g_tabs.size() == 1) {
         g_tabs[0]->title = L"New Tab";
         g_tabs[0]->url = L"about:blank";
+        if (g_tabs[0]->pFaviconBitmap) {
+            delete g_tabs[0]->pFaviconBitmap;
+            g_tabs[0]->pFaviconBitmap = nullptr;
+        }
         if (g_tabs[0]->webview) {
             if (!g_homePageUrl.empty()) {
                 g_tabs[0]->webview->Navigate(g_homePageUrl.c_str());
@@ -2583,7 +2639,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 g.FillPath(&hoverBrush, &inPath);
             }
 
-            if (g_hAppIcon) {
+            if (g_tabs[i]->pFaviconBitmap) {
+                REAL iconY = (REAL)tabRc.top + (REAL)((tabRc.bottom - tabRc.top - 18) / 2.0f);
+                g.DrawImage(g_tabs[i]->pFaviconBitmap, (REAL)tabRc.left + 16.0f, iconY, 18.0f, 18.0f);
+            } else if (g_hAppIcon) {
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
@@ -2633,7 +2692,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             // Fill active tab seamlessly with toolbar brush
             g.FillPath(&toolbarBrush, &activeTabPath);
 
-            if (g_hAppIcon) {
+            if (g_tabs[i]->pFaviconBitmap) {
+                REAL iconY = (REAL)tabRc.top + (REAL)((tabRc.bottom - tabRc.top - 18) / 2.0f);
+                g.DrawImage(g_tabs[i]->pFaviconBitmap, (REAL)tabRc.left + 16.0f, iconY, 18.0f, 18.0f);
+            } else if (g_hAppIcon) {
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
