@@ -14,6 +14,7 @@
 #include <memory>
 #include <fstream>
 #include <sstream>
+#include <cmath>
 #include "resource.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -153,16 +154,25 @@ enum MenuAction {
     ACTION_QUIT
 };
 
-struct WinUI3MenuItem {
-    std::wstring text;
-    std::wstring shortcut;
-    MenuAction action;
-    bool isSeparator;
-    bool isHeader;
-    bool isEnabled;
+enum GridMenuIconType {
+    GRID_ICON_NEW_TAB = 0,
+    GRID_ICON_NEW_WINDOW,
+    GRID_ICON_HOME,
+    GRID_ICON_HISTORY,
+    GRID_ICON_DOWNLOADS,
+    GRID_ICON_PRINT,
+    GRID_ICON_ZOOM,
+    GRID_ICON_SETTINGS,
+    GRID_ICON_QUIT
 };
 
-std::vector<WinUI3MenuItem> g_menuItems;
+struct GridMenuItem {
+    std::wstring text;
+    MenuAction action;
+    GridMenuIconType iconType;
+};
+
+std::vector<GridMenuItem> g_gridItems;
 int g_hoveredIndex = -1;
 int g_engineDropdownHoveredIndex = -1;
 
@@ -1277,58 +1287,152 @@ void CloseTab(int index) {
 }
 
 // --------------------------------------------------------------------------
-// WinUI 3 Style Rounded Tray Context Menu Implementation (Anti-Aliased GDI+)
+// 3x3 Block Grid Dropdown Menu Implementation (Anti-Aliased GDI+)
 // --------------------------------------------------------------------------
-constexpr int MENU_WIDTH = 260;
-constexpr int ITEM_HEIGHT = 34;
-constexpr int SEPARATOR_HEIGHT = 9;
-constexpr int MENU_PADDING_Y = 6;
-constexpr int MENU_PADDING_X = 6;
+constexpr int GRID_COLS = 3;
+constexpr int GRID_ROWS = 3;
+constexpr int BLOCK_WIDTH = 88;
+constexpr int BLOCK_HEIGHT = 80;
+constexpr int BLOCK_GAP = 9;
+constexpr int MENU_PAD_X = 14;
+constexpr int MENU_PAD_Y = 14;
+
+constexpr int MENU_WIDTH = MENU_PAD_X * 2 + GRID_COLS * BLOCK_WIDTH + (GRID_COLS - 1) * BLOCK_GAP;   // 310px
+constexpr int MENU_HEIGHT = MENU_PAD_Y * 2 + GRID_ROWS * BLOCK_HEIGHT + (GRID_ROWS - 1) * BLOCK_GAP; // 286px
 
 int CalculateMenuHeight() {
-    int h = MENU_PADDING_Y * 2;
-    for (const auto& item : g_menuItems) {
-        if (item.isSeparator) h += SEPARATOR_HEIGHT;
-        else h += ITEM_HEIGHT;
-    }
-    return h;
+    return MENU_HEIGHT;
+}
+
+int CalculateMenuWidth() {
+    return MENU_WIDTH;
 }
 
 RECT GetItemRect(int index) {
-    int y = MENU_PADDING_Y;
-    for (int i = 0; i < index; ++i) {
-        if (g_menuItems[i].isSeparator) y += SEPARATOR_HEIGHT;
-        else y += ITEM_HEIGHT;
-    }
-    int itemH = g_menuItems[index].isSeparator ? SEPARATOR_HEIGHT : ITEM_HEIGHT;
-    return RECT{ MENU_PADDING_X, y, MENU_WIDTH - MENU_PADDING_X, y + itemH };
+    if (index < 0 || index >= GRID_COLS * GRID_ROWS) return RECT{ 0, 0, 0, 0 };
+    int col = index % GRID_COLS;
+    int row = index / GRID_COLS;
+    int bx = MENU_PAD_X + col * (BLOCK_WIDTH + BLOCK_GAP);
+    int by = MENU_PAD_Y + row * (BLOCK_HEIGHT + BLOCK_GAP);
+    return RECT{ bx, by, bx + BLOCK_WIDTH, by + BLOCK_HEIGHT };
 }
 
 int GetItemFromPoint(POINT pt) {
-    for (size_t i = 0; i < g_menuItems.size(); ++i) {
-        RECT rc = GetItemRect((int)i);
+    for (int i = 0; i < (int)g_gridItems.size(); ++i) {
+        RECT rc = GetItemRect(i);
         if (PtInRect(&rc, pt)) {
-            if (g_menuItems[i].isSeparator || g_menuItems[i].isHeader || !g_menuItems[i].isEnabled) {
-                return -1;
-            }
-            return (int)i;
+            return i;
         }
     }
     return -1;
 }
 
-void ExecuteMenuAction(MenuAction action) {
-    switch (action) {
-    case ACTION_OPEN_HAZE:
-        RestoreMainWindow(false);
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
-            if (!g_homePageUrl.empty()) {
-                g_tabs[g_activeTabIndex]->webview->Navigate(g_homePageUrl.c_str());
-            } else {
-                g_tabs[g_activeTabIndex]->webview->NavigateToString(g_homePageHtml.c_str());
-            }
+void DrawGridMenuIcon(Graphics& g, GridMenuIconType iconType, REAL cx, REAL cy, const Color& color) {
+    Pen iconPen(color, 1.8f);
+    iconPen.SetStartCap(LineCapRound);
+    iconPen.SetEndCap(LineCapRound);
+    iconPen.SetLineJoin(LineJoinRound);
+
+    switch (iconType) {
+    case GRID_ICON_NEW_TAB: {
+        // Plus icon (+) as requested
+        REAL r = 8.0f;
+        g.DrawLine(&iconPen, cx - r, cy, cx + r, cy);
+        g.DrawLine(&iconPen, cx, cy - r, cx, cy + r);
+        break;
+    }
+    case GRID_ICON_NEW_WINDOW: {
+        // Overlapping modern windows
+        g.DrawRectangle(&iconPen, cx - 8.0f, cy - 3.5f, 13.0f, 11.0f);
+        g.DrawLine(&iconPen, cx - 8.0f, cy - 0.5f, cx + 5.0f, cy - 0.5f);
+        g.DrawLine(&iconPen, cx - 4.0f, cy - 7.5f, cx + 8.5f, cy - 7.5f);
+        g.DrawLine(&iconPen, cx + 8.5f, cy - 7.5f, cx + 8.5f, cy + 3.5f);
+        break;
+    }
+    case GRID_ICON_HOME: {
+        // Home roof
+        PointF roofPts[] = {
+            PointF(cx - 9.0f, cy - 0.5f),
+            PointF(cx, cy - 8.5f),
+            PointF(cx + 9.0f, cy - 0.5f)
+        };
+        g.DrawLines(&iconPen, roofPts, 3);
+        // Base / walls
+        g.DrawRectangle(&iconPen, cx - 6.5f, cy - 0.5f, 13.0f, 8.5f);
+        // Door
+        g.DrawRectangle(&iconPen, cx - 2.0f, cy + 3.0f, 4.0f, 5.0f);
+        break;
+    }
+    case GRID_ICON_HISTORY: {
+        // Clock face
+        g.DrawEllipse(&iconPen, cx - 8.5f, cy - 8.5f, 17.0f, 17.0f);
+        // Hands: 12 o'clock and 3 o'clock
+        g.DrawLine(&iconPen, cx, cy, cx, cy - 5.0f);
+        g.DrawLine(&iconPen, cx, cy, cx + 4.5f, cy);
+        break;
+    }
+    case GRID_ICON_DOWNLOADS: {
+        // Downward arrow
+        g.DrawLine(&iconPen, cx, cy - 8.0f, cx, cy + 2.0f);
+        g.DrawLine(&iconPen, cx - 4.5f, cy - 2.5f, cx, cy + 2.0f);
+        g.DrawLine(&iconPen, cx + 4.5f, cy - 2.5f, cx, cy + 2.0f);
+        // Tray bracket
+        PointF trayPts[] = {
+            PointF(cx - 8.0f, cy + 2.0f),
+            PointF(cx - 8.0f, cy + 7.5f),
+            PointF(cx + 8.0f, cy + 7.5f),
+            PointF(cx + 8.0f, cy + 2.0f)
+        };
+        g.DrawLines(&iconPen, trayPts, 4);
+        break;
+    }
+    case GRID_ICON_PRINT: {
+        // Top paper
+        g.DrawRectangle(&iconPen, cx - 5.0f, cy - 8.5f, 10.0f, 5.0f);
+        // Body
+        g.DrawRectangle(&iconPen, cx - 8.5f, cy - 3.5f, 17.0f, 7.5f);
+        // Output paper
+        g.DrawRectangle(&iconPen, cx - 5.0f, cy + 4.0f, 10.0f, 4.5f);
+        // Output print line
+        g.DrawLine(&iconPen, cx - 3.0f, cy + 6.0f, cx + 3.0f, cy + 6.0f);
+        break;
+    }
+    case GRID_ICON_ZOOM: {
+        // Magnifying glass lens
+        REAL lcx = cx - 1.5f;
+        REAL lcy = cy - 1.5f;
+        g.DrawEllipse(&iconPen, lcx - 6.0f, lcy - 6.0f, 12.0f, 12.0f);
+        // Handle
+        g.DrawLine(&iconPen, lcx + 4.2f, lcy + 4.2f, cx + 8.0f, cy + 8.0f);
+        // Plus inside lens
+        g.DrawLine(&iconPen, lcx - 3.0f, lcy, lcx + 3.0f, lcy);
+        g.DrawLine(&iconPen, lcx, lcy - 3.0f, lcx, lcy + 3.0f);
+        break;
+    }
+    case GRID_ICON_SETTINGS: {
+        // Center hub
+        g.DrawEllipse(&iconPen, cx - 3.5f, cy - 3.5f, 7.0f, 7.0f);
+        // 6 gear cogs
+        for (int a = 0; a < 6; ++a) {
+            REAL angle = a * 60.0f * 3.14159265f / 180.0f;
+            REAL cosA = cosf(angle);
+            REAL sinA = sinf(angle);
+            g.DrawLine(&iconPen, cx + cosA * 5.0f, cy + sinA * 5.0f, cx + cosA * 8.5f, cy + sinA * 8.5f);
         }
         break;
+    }
+    case GRID_ICON_QUIT: {
+        // Power circle arc (300 degrees)
+        g.DrawArc(&iconPen, cx - 7.5f, cy - 6.5f, 15.0f, 15.0f, 120.0f, 300.0f);
+        // Vertical power line
+        g.DrawLine(&iconPen, cx, cy - 8.5f, cx, cy - 1.0f);
+        break;
+    }
+    }
+}
+
+void ExecuteMenuAction(MenuAction action) {
+    switch (action) {
     case ACTION_NEW_TAB:
         RestoreMainWindow(false);
         CreateNewTab(L"about:blank");
@@ -1337,23 +1441,14 @@ void ExecuteMenuAction(MenuAction action) {
         RestoreMainWindow(false);
         CreateNewTab(L"about:blank");
         break;
-    case ACTION_ZOOM_IN:
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
-            double zoom = 1.0;
-            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
-            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom + 0.1);
-        }
-        break;
-    case ACTION_ZOOM_OUT:
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
-            double zoom = 1.0;
-            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
-            if (zoom > 0.3) g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom - 0.1);
-        }
-        break;
-    case ACTION_ZOOM_RESET:
-        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
-            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(1.0);
+    case ACTION_OPEN_HAZE:
+        RestoreMainWindow(false);
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
+            if (!g_homePageUrl.empty()) {
+                g_tabs[g_activeTabIndex]->webview->Navigate(g_homePageUrl.c_str());
+            } else {
+                g_tabs[g_activeTabIndex]->webview->NavigateToString(g_homePageHtml.c_str());
+            }
         }
         break;
     case ACTION_HISTORY:
@@ -1371,6 +1466,13 @@ void ExecuteMenuAction(MenuAction action) {
     case ACTION_PRINT:
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
             g_tabs[g_activeTabIndex]->webview->ExecuteScript(L"window.print();", nullptr);
+        }
+        break;
+    case ACTION_ZOOM_IN:
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->controller) {
+            double zoom = 1.0;
+            g_tabs[g_activeTabIndex]->controller->get_ZoomFactor(&zoom);
+            g_tabs[g_activeTabIndex]->controller->put_ZoomFactor(zoom + 0.1);
         }
         break;
     case ACTION_SETTINGS:
@@ -1393,6 +1495,11 @@ void ExecuteMenuAction(MenuAction action) {
 
 LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
@@ -1405,73 +1512,90 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
 
         // Menu background according to theme
-        Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 255, 255, 255);
+        Color bgCol = g_isDarkMode ? Color(255, 30, 30, 36) : Color(255, 248, 243, 230);
         SolidBrush bgBrush(bgCol);
         g.FillRectangle(&bgBrush, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left), (REAL)(rcClient.bottom - rcClient.top));
 
-        GraphicsPath path;
-        AddRoundedRect(path, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 10.0f);
+        GraphicsPath outerPath;
+        AddRoundedRect(outerPath, (REAL)rcClient.left, (REAL)rcClient.top, (REAL)(rcClient.right - rcClient.left - 1), (REAL)(rcClient.bottom - rcClient.top - 1), 12.0f);
 
-        Color borderCol = g_isDarkMode ? Color(255, 58, 58, 70) : Color(255, 226, 226, 229);
-        Pen borderPen(borderCol, 1.0f);
-        g.DrawPath(&borderPen, &path);
+        Color borderCol = g_isDarkMode ? Color(255, 60, 60, 72) : Color(255, 218, 212, 195);
+        Pen borderPen(borderCol, 1.2f);
+        g.DrawPath(&borderPen, &outerPath);
 
         FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
         if (pFontFamily->GetLastStatus() != Ok) {
             delete pFontFamily;
             pFontFamily = new FontFamily(L"Segoe UI");
         }
-        Gdiplus::Font fontRegular(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font fontBold(pFontFamily, 9.5f, FontStyleBold, UnitPoint);
-        Gdiplus::Font fontShortcut(pFontFamily, 8.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontLabel(pFontFamily, 9.0f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font fontLabelHover(pFontFamily, 9.0f, FontStyleBold, UnitPoint);
 
         StringFormat strFormat;
-        strFormat.SetAlignment(StringAlignmentNear);
+        strFormat.SetAlignment(StringAlignmentCenter);
         strFormat.SetLineAlignment(StringAlignmentCenter);
+        strFormat.SetTrimming(StringTrimmingEllipsisCharacter);
+        strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
 
-        StringFormat shortcutFormat;
-        shortcutFormat.SetAlignment(StringAlignmentFar);
-        shortcutFormat.SetLineAlignment(StringAlignmentCenter);
+        for (size_t i = 0; i < g_gridItems.size(); ++i) {
+            const auto& item = g_gridItems[i];
+            RECT blockRc = GetItemRect((int)i);
+            bool isHover = ((int)i == g_hoveredIndex);
 
-        for (size_t i = 0; i < g_menuItems.size(); ++i) {
-            const auto& item = g_menuItems[i];
-            RECT itemRc = GetItemRect((int)i);
+            REAL bx = (REAL)blockRc.left;
+            REAL by = (REAL)blockRc.top;
+            REAL bw = (REAL)(blockRc.right - blockRc.left);
+            REAL bh = (REAL)(blockRc.bottom - blockRc.top);
 
-            if (item.isSeparator) {
-                REAL midY = (itemRc.top + itemRc.bottom) / 2.0f;
-                Color sepCol = g_isDarkMode ? Color(255, 50, 50, 60) : Color(255, 235, 235, 238);
-                Pen sepPen(sepCol, 1.0f);
-                g.DrawLine(&sepPen, (REAL)itemRc.left + 8.0f, midY, (REAL)itemRc.right - 8.0f, midY);
-                continue;
-            }
+            GraphicsPath blockPath;
+            AddRoundedRect(blockPath, bx, by, bw, bh, 9.0f);
 
-            if ((int)i == g_hoveredIndex && item.isEnabled && !item.isHeader) {
-                GraphicsPath hoverPath;
-                AddRoundedRect(hoverPath, (REAL)itemRc.left + 4, (REAL)itemRc.top + 2, (REAL)(itemRc.right - itemRc.left - 8), (REAL)(itemRc.bottom - itemRc.top - 4), 6.0f);
-                Color hoverCol = g_isDarkMode ? Color(255, 50, 50, 60) : Color(255, 243, 243, 246);
-                SolidBrush hoverBrush(hoverCol);
-                g.FillPath(&hoverBrush, &hoverPath);
-            }
-
+            Color cardBg;
+            Color cardBorder;
+            Color iconCol;
             Color textCol;
+
             if (g_isDarkMode) {
-                textCol = item.isHeader ? Color(255, 176, 167, 56) : (item.isEnabled ? Color(255, 235, 235, 240) : Color(255, 120, 120, 130));
+                if (isHover) {
+                    cardBg = Color(255, 54, 54, 66);
+                    cardBorder = Color(255, 176, 167, 56);
+                    iconCol = Color(255, 255, 255, 255);
+                    textCol = Color(255, 255, 255, 255);
+                } else {
+                    cardBg = Color(255, 40, 40, 48);
+                    cardBorder = Color(255, 56, 56, 66);
+                    iconCol = Color(255, 205, 205, 215);
+                    textCol = Color(255, 215, 215, 225);
+                }
             } else {
-                textCol = item.isHeader ? Color(255, 118, 112, 27) : (item.isEnabled ? Color(255, 36, 36, 38) : Color(255, 150, 150, 155));
+                if (isHover) {
+                    cardBg = Color(255, 238, 232, 210);
+                    cardBorder = Color(255, 118, 112, 27);
+                    iconCol = Color(255, 95, 90, 15);
+                    textCol = Color(255, 35, 33, 25);
+                } else {
+                    cardBg = Color(255, 254, 250, 242);
+                    cardBorder = Color(255, 230, 224, 206);
+                    iconCol = Color(255, 80, 76, 62);
+                    textCol = Color(255, 60, 58, 50);
+                }
             }
+
+            SolidBrush blockBrush(cardBg);
+            g.FillPath(&blockBrush, &blockPath);
+
+            Pen blockPen(cardBorder, isHover ? 1.5f : 1.0f);
+            g.DrawPath(&blockPen, &blockPath);
+
+            // Icon at top center of block
+            REAL icx = bx + bw / 2.0f;
+            REAL icy = by + 28.0f;
+            DrawGridMenuIcon(g, item.iconType, icx, icy, iconCol);
+
+            // Text label at bottom of block
             SolidBrush textBrush(textCol);
-
-            // Left text
-            RectF layoutRect((REAL)itemRc.left + 16.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 100.0f), (REAL)(itemRc.bottom - itemRc.top));
-            g.DrawString(item.text.c_str(), -1, item.isHeader ? &fontBold : &fontRegular, layoutRect, &strFormat, &textBrush);
-
-            // Right shortcut text
-            if (!item.shortcut.empty()) {
-                Color scCol = g_isDarkMode ? Color(255, 140, 140, 150) : Color(255, 130, 130, 135);
-                SolidBrush scBrush(scCol);
-                RectF scRect((REAL)itemRc.left + 100.0f, (REAL)itemRc.top, (REAL)(itemRc.right - itemRc.left - 116.0f), (REAL)(itemRc.bottom - itemRc.top));
-                g.DrawString(item.shortcut.c_str(), -1, &fontShortcut, scRect, &shortcutFormat, &scBrush);
-            }
+            RectF labelRc(bx + 4.0f, by + 48.0f, bw - 8.0f, 22.0f);
+            g.DrawString(item.text.c_str(), -1, isHover ? &fontLabelHover : &fontLabel, labelRc, &strFormat, &textBrush);
         }
 
         delete pFontFamily;
@@ -1502,24 +1626,32 @@ LRESULT CALLBACK MenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
         int clickedIdx = GetItemFromPoint(pt);
         ShowWindow(hWnd, SW_HIDE);
-        if (clickedIdx >= 0 && clickedIdx < (int)g_menuItems.size()) {
-            ExecuteMenuAction(g_menuItems[clickedIdx].action);
+        if (clickedIdx >= 0 && clickedIdx < (int)g_gridItems.size()) {
+            ExecuteMenuAction(g_gridItems[clickedIdx].action);
         }
         return 0;
+    }
+    case WM_KEYDOWN: {
+        if (wParam == VK_ESCAPE) {
+            ShowWindow(hWnd, SW_HIDE);
+            return 0;
+        }
+        break;
     }
     case WM_KILLFOCUS:
         ShowWindow(hWnd, SW_HIDE);
         return 0;
     default:
-        return DefWindowProc(hWnd, msg, wParam, lParam);
+        break;
     }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
 void ShowWinUI3Menu() {
     POINT cursor;
     GetCursorPos(&cursor);
 
-    int menuW = MENU_WIDTH;
+    int menuW = CalculateMenuWidth();
     int menuH = CalculateMenuHeight();
 
     RECT workArea;
@@ -1688,8 +1820,9 @@ LRESULT CALLBACK EngineDropdownWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         ShowWindow(hWnd, SW_HIDE);
         return 0;
     default:
-        return DefWindowProc(hWnd, msg, wParam, lParam);
+        break;
     }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
 void ShowEngineDropdown() {
@@ -1756,33 +1889,22 @@ void ShowSettingsDropdown() {
 }
 
 void SetupMenuItems() {
-    g_menuItems.clear();
-    // Header
-    g_menuItems.push_back({ std::wstring(APP_NAME) + L" " + APP_VERSION, L"", ACTION_VERSION, false, true, false });
-    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+    g_gridItems = {
+        // Row 1: Tab & Window & Home
+        { L"New Tab",    ACTION_NEW_TAB,    GRID_ICON_NEW_TAB },
+        { L"New Window", ACTION_NEW_WINDOW, GRID_ICON_NEW_WINDOW },
+        { L"Home",       ACTION_OPEN_HAZE,  GRID_ICON_HOME },
 
-    // Window & Tab operations
-    g_menuItems.push_back({ L"New tab", L"Ctrl+T", ACTION_NEW_TAB, false, false, true });
-    g_menuItems.push_back({ L"New window", L"Ctrl+N", ACTION_NEW_WINDOW, false, false, true });
-    g_menuItems.push_back({ L"Open HAZE Home", L"", ACTION_OPEN_HAZE, false, false, true });
-    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
+        // Row 2: Browsing & Tools
+        { L"History",    ACTION_HISTORY,    GRID_ICON_HISTORY },
+        { L"Downloads",  ACTION_DOWNLOADS,  GRID_ICON_DOWNLOADS },
+        { L"Print",      ACTION_PRINT,      GRID_ICON_PRINT },
 
-    // Zoom Controls
-    g_menuItems.push_back({ L"Zoom In", L"Ctrl++", ACTION_ZOOM_IN, false, false, true });
-    g_menuItems.push_back({ L"Zoom Out", L"Ctrl+-", ACTION_ZOOM_OUT, false, false, true });
-    g_menuItems.push_back({ L"Reset Zoom (100%)", L"Ctrl+0", ACTION_ZOOM_RESET, false, false, true });
-    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
-
-    // Navigation & Tools
-    g_menuItems.push_back({ L"History", L"Ctrl+H", ACTION_HISTORY, false, false, true });
-    g_menuItems.push_back({ L"Downloads", L"Ctrl+J", ACTION_DOWNLOADS, false, false, true });
-    g_menuItems.push_back({ L"Print", L"Ctrl+P", ACTION_PRINT, false, false, true });
-    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
-
-    // Settings & Exit
-    g_menuItems.push_back({ L"Settings", L"", ACTION_SETTINGS, false, false, true });
-    g_menuItems.push_back({ L"", L"", (MenuAction)0, true, false, false });
-    g_menuItems.push_back({ L"Close HAZE", L"", ACTION_QUIT, false, false, true });
+        // Row 3: Zoom, Settings, Close
+        { L"Zoom In",    ACTION_ZOOM_IN,    GRID_ICON_ZOOM },
+        { L"Settings",   ACTION_SETTINGS,   GRID_ICON_SETTINGS },
+        { L"Close",      ACTION_QUIT,       GRID_ICON_QUIT }
+    };
 }
 
 // --------------------------------------------------------------------------
