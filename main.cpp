@@ -440,21 +440,21 @@ void ResizeControls(int width, int height) {
 
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int engineBtnW = 32;
-    int engineBtnH = 32;
-    int engineBtnX = sb.left + 10;
+    int engineBtnW = 28;
+    int engineBtnH = 28;
+    int engineBtnX = sb.left + 16;
     int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
 
     if (g_hBtnEngine) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int editX = engineBtnX + engineBtnW + 8;
-    int editW = sb.right - editX - 16;
+    int editX = engineBtnX + engineBtnW + 14;
+    int editW = sb.right - editX - 20;
     if (editW < 50) editW = 50;
 
-    int editH = 26;
-    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2) + 1;
+    int editH = 28;
+    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -708,7 +708,10 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
             auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
             if (pBmp) {
-                g.DrawImage(pBmp, 6.0f, ((rc.bottom - rc.top) - 20.0f) / 2.0f, 20.0f, 20.0f);
+                REAL iconSize = 20.0f;
+                REAL iconX = ((rc.right - rc.left) - iconSize) / 2.0f;
+                REAL iconY = ((rc.bottom - rc.top) - iconSize) / 2.0f;
+                g.DrawImage(pBmp, iconX, iconY, iconSize, iconSize);
             }
         }
 
@@ -1669,12 +1672,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE: {
         g_hWnd = hWnd;
         const wchar_t* primaryFont = GetModernFontFamilyName();
-        // 12pt font at standard 96 DPI: -MulDiv(12, 96, 72) = -16 (or height 20)
-        HFONT hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 13pt font for address bar matching reference
+        HFONT hFont = CreateFontW(23, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
         if (!hFont) {
-            hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(23, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
