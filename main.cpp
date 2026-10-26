@@ -712,6 +712,31 @@ void CreateNewTab(const std::wstring& initialUrl) {
 
                             tab->webview->AddScriptToExecuteOnDocumentCreated(INJECTED_INTER_SCRIPT, nullptr);
 
+                            // Handle WebMessages from the center homepage search bar
+                            tab->webview->add_WebMessageReceived(
+                                Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+                                    [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                        LPWSTR messageRaw = nullptr;
+                                        if (SUCCEEDED(args->get_WebMessageAsJson(&messageRaw)) && messageRaw) {
+                                            std::wstring jsonStr = messageRaw;
+                                            CoTaskMemFree(messageRaw);
+
+                                            // Simple extraction of "query"
+                                            size_t qPos = jsonStr.find(L"\"query\":");
+                                            if (qPos != std::wstring::npos) {
+                                                size_t start = jsonStr.find(L"\"", qPos + 8);
+                                                if (start != std::wstring::npos) {
+                                                    size_t end = jsonStr.find(L"\"", start + 1);
+                                                    if (end != std::wstring::npos) {
+                                                        std::wstring query = jsonStr.substr(start + 1, end - start - 1);
+                                                        NavigateToInput(query);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        return S_OK;
+                                    }).Get(), nullptr);
+
                             tab->webview->add_SourceChanged(
                                 Callback<ICoreWebView2SourceChangedEventHandler>(
                                     [newIndex](ICoreWebView2* webview, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
