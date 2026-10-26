@@ -662,13 +662,13 @@ RECT GetCaptionBtnRect(CaptionButtonType type, int clientWidth) {
 }
 
 RECT GetTabRect(int index, int clientWidth) {
-    int x = 10 + index * (TAB_WIDTH + 6);
+    int x = 12 + index * (TAB_WIDTH + 8);
     int y = 8;
     return RECT{ x, y, x + TAB_WIDTH, TAB_BAR_HEIGHT };
 }
 
 RECT GetNewTabBtnRect(int clientWidth) {
-    int x = 10 + (int)g_tabs.size() * (TAB_WIDTH + 6) + 14;
+    int x = 12 + (int)g_tabs.size() * (TAB_WIDTH + 8) + 16;
     int y = 10;
     return RECT{ x, y, x + 28, y + 28 };
 }
@@ -1423,85 +1423,119 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
 
         // 3. Render Anti-Aliased Chrome-style tabs
+        // Pass 1: Render all inactive tabs first so the active tab's shoulders and flares layer cleanly on top
         for (size_t i = 0; i < g_tabs.size(); ++i) {
+            if ((int)i == g_activeTabIndex) continue;
+
             RECT tabRc = GetTabRect((int)i, width);
-            bool isActive = ((int)i == g_activeTabIndex);
             bool isHover = ((int)i == g_hoveredTabIndex);
 
             REAL tx = (REAL)tabRc.left;
-            REAL ty = (REAL)tabRc.top;
+            REAL ty = (REAL)tabRc.top + 2.0f;
             REAL tw = (REAL)(tabRc.right - tabRc.left);
-            REAL th = (REAL)(tabRc.bottom - tabRc.top);
-            REAL botY = (REAL)TAB_BAR_HEIGHT;
+            REAL th = (REAL)(tabRc.bottom - tabRc.top - 4.0f);
 
-            GraphicsPath tabPath;
-            if (isActive) {
-                // Chrome-style active tab with prominent rounded top shoulders and smooth bottom outward flares
-                REAL rTop = 12.0f;
-                REAL rBot = 10.0f;
-                
-                // Start at bottom-left corner with outward flare
-                tabPath.AddArc(tx - rBot, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
-                // Go up left side
-                tabPath.AddLine(tx, botY - rBot, tx, ty + rTop);
-                // Top-left rounded corner
-                tabPath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
-                // Top edge
-                tabPath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
-                // Top-right rounded corner
-                tabPath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
-                // Go down right side
-                tabPath.AddLine(tx + tw, ty + rTop, tx + tw, botY - rBot);
-                // Bottom-right outward flare
-                tabPath.AddArc(tx + tw, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 180.0f, -90.0f);
-                // Connect back to start along the bottom seam into toolbar
-                tabPath.AddLine(tx + tw + rBot, botY + 4.0f, tx - rBot, botY + 4.0f);
-                tabPath.CloseFigure();
+            GraphicsPath inPath;
+            REAL inRadius = 8.0f;
+            inPath.AddArc(tx, ty, inRadius * 2.0f, inRadius * 2.0f, 180.0f, 90.0f);
+            inPath.AddArc(tx + tw - inRadius * 2.0f, ty, inRadius * 2.0f, inRadius * 2.0f, 270.0f, 90.0f);
+            inPath.AddArc(tx + tw - inRadius * 2.0f, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 0.0f, 90.0f);
+            inPath.AddArc(tx, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 90.0f, 90.0f);
+            inPath.CloseFigure();
 
-                // Fill active tab seamlessly with toolbar brush
-                g.FillPath(&toolbarBrush, &tabPath);
-
-                // In full screen / maximized, add crisp outline border on active tab
-                if (isMaximized) {
-                    GraphicsPath outlinePath;
-                    outlinePath.AddArc(tx - rBot, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
-                    outlinePath.AddLine(tx, botY - rBot, tx, ty + rTop);
-                    outlinePath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
-                    outlinePath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
-                    outlinePath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
-                    outlinePath.AddLine(tx + tw, ty + rTop, tx + tw, botY - rBot);
-                    outlinePath.AddArc(tx + tw, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 180.0f, -90.0f);
-
-                    Pen activeBorder(Color(255, 175, 168, 115), 1.2f);
-                    g.DrawPath(&activeBorder, &outlinePath);
-                }
-            }
-            else {
-                // Inactive tab pill / tab rounded rectangle
-                REAL inRadius = 10.0f;
-                tabPath.AddArc(tx, ty, inRadius * 2.0f, inRadius * 2.0f, 180.0f, 90.0f);
-                tabPath.AddArc(tx + tw - inRadius * 2.0f, ty, inRadius * 2.0f, inRadius * 2.0f, 270.0f, 90.0f);
-                tabPath.AddArc(tx + tw - inRadius * 2.0f, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 0.0f, 90.0f);
-                tabPath.AddArc(tx, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 90.0f, 90.0f);
-                tabPath.CloseFigure();
-
-                if (isHover) {
-                    SolidBrush hoverBrush(isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
-                    g.FillPath(&hoverBrush, &tabPath);
-                }
+            if (isHover) {
+                SolidBrush hoverBrush(isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
+                g.FillPath(&hoverBrush, &inPath);
             }
 
             if (g_hAppIcon) {
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            Color textCol = isActive ? Color(255, 38, 37, 29) : Color(255, 115, 112, 92);
+            Color textCol(255, 115, 112, 92);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 46.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 80.0f), (REAL)(tabRc.bottom - tabRc.top));
-            g.DrawString(g_tabs[i]->title.c_str(), -1, isActive ? &tabBoldFont : &tabFont, titleRect, &strFormat, &textBrush);
+            g.DrawString(g_tabs[i]->title.c_str(), -1, &tabFont, titleRect, &strFormat, &textBrush);
 
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = ((int)i == g_hoveredCloseTabIndex);
+            if (isCloseHover) {
+                SolidBrush closeBg(Color(255, 230, 224, 184));
+                g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
+            }
+
+            Pen closePen(isCloseHover ? Color(255, 217, 48, 37) : Color(255, 115, 112, 92), 1.6f);
+            closePen.SetStartCap(LineCapRound);
+            closePen.SetEndCap(LineCapRound);
+
+            REAL cx = (closeRc.left + closeRc.right) / 2.0f;
+            REAL cy = (closeRc.top + closeRc.bottom) / 2.0f;
+            REAL sz = 4.0f;
+            g.DrawLine(&closePen, cx - sz, cy - sz, cx + sz, cy + sz);
+            g.DrawLine(&closePen, cx + sz, cy - sz, cx - sz, cy + sz);
+        }
+
+        // Pass 2: Render Active Tab with smooth Chrome curve geometry and seamless toolbar integration
+        if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
+            int i = g_activeTabIndex;
+            RECT tabRc = GetTabRect(i, width);
+
+            REAL tx = (REAL)tabRc.left;
+            REAL ty = (REAL)tabRc.top;
+            REAL tw = (REAL)(tabRc.right - tabRc.left);
+            REAL botY = (REAL)TAB_BAR_HEIGHT;
+
+            REAL rTop = 10.0f; // Soft rounded top shoulder
+            REAL rBot = 10.0f; // Smooth outward flare
+
+            GraphicsPath activeTabPath;
+            // Flare bottom-left outward
+            activeTabPath.AddArc(tx - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
+            // Left vertical edge
+            activeTabPath.AddLine(tx, botY - (rBot / 2.0f), tx, ty + rTop);
+            // Top-left shoulder
+            activeTabPath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
+            // Top flat edge
+            activeTabPath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
+            // Top-right shoulder
+            activeTabPath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
+            // Right vertical edge
+            activeTabPath.AddLine(tx + tw, ty + rTop, tx + tw, botY - (rBot / 2.0f));
+            // Flare bottom-right outward
+            activeTabPath.AddArc(tx + tw - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 0.0f, -90.0f);
+            // Close into toolbar seamlessly
+            activeTabPath.AddLine(tx + tw + rBot, botY + 4.0f, tx - rBot, botY + 4.0f);
+            activeTabPath.CloseFigure();
+
+            // Fill active tab seamlessly with toolbar brush
+            g.FillPath(&toolbarBrush, &activeTabPath);
+
+            // Smooth outline path (only along the visible top, sides, and outward flares)
+            GraphicsPath outlinePath;
+            outlinePath.AddArc(tx - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
+            outlinePath.AddLine(tx, botY - (rBot / 2.0f), tx, ty + rTop);
+            outlinePath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
+            outlinePath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
+            outlinePath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
+            outlinePath.AddLine(tx + tw, ty + rTop, tx + tw, botY - (rBot / 2.0f));
+            outlinePath.AddArc(tx + tw - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 0.0f, -90.0f);
+
+            // Soft warm border color that blends naturally and prevents harsh contrast
+            Color softBorderCol = isMaximized ? Color(180, 185, 178, 125) : Color(120, 205, 198, 150);
+            Pen activeBorder(softBorderCol, 1.0f);
+            g.DrawPath(&activeBorder, &outlinePath);
+
+            if (g_hAppIcon) {
+                DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
+            }
+
+            Color textCol(255, 38, 37, 29);
+            SolidBrush textBrush(textCol);
+            RectF titleRect((REAL)tabRc.left + 46.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 80.0f), (REAL)(tabRc.bottom - tabRc.top));
+            g.DrawString(g_tabs[i]->title.c_str(), -1, &tabBoldFont, titleRect, &strFormat, &textBrush);
+
+            RECT closeRc = GetTabCloseRect(tabRc);
+            bool isCloseHover = (i == g_hoveredCloseTabIndex);
             if (isCloseHover) {
                 SolidBrush closeBg(Color(255, 230, 224, 184));
                 g.FillEllipse(&closeBg, (REAL)closeRc.left, (REAL)closeRc.top, (REAL)(closeRc.right - closeRc.left), (REAL)(closeRc.bottom - closeRc.top));
