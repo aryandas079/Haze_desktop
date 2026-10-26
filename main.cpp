@@ -361,8 +361,8 @@ void ResizeControls(int width, int height) {
 
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int engineBtnW = 46;
-    int engineBtnH = 34;
+    int engineBtnW = 44;
+    int engineBtnH = 32;
     int engineBtnX = sb.left + 12;
     int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
 
@@ -370,13 +370,13 @@ void ResizeControls(int width, int height) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int btnMargin = 6;
+    int btnMargin = 8;
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
-    int editX = engineBtnX + engineBtnW + 8;
+    int editX = engineBtnX + engineBtnW + 6;
     int editW = (sb.right - btnMargin - btnSize - 12) - editX;
     if (editW < 50) editW = 50;
 
-    int editH = 26;
+    int editH = 22;
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
@@ -1248,11 +1248,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CREATE: {
         g_hWnd = hWnd;
-        HFONT hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT hFont = CreateFontW(19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Inter");
         if (!hFont) {
-            hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
