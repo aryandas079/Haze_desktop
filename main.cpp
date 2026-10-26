@@ -440,21 +440,25 @@ void ResizeControls(int width, int height) {
 
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int engineBtnW = 28;
-    int engineBtnH = 28;
-    int engineBtnX = sb.left + 16;
-    int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
+
+    // Engine icon button — square, vertically centered inside pill
+    int engineBtnW = 32;
+    int engineBtnH = 32;
+    int engineBtnX = sb.left + 12;
+    int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnH) / 2;
 
     if (g_hBtnEngine) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    int editX = engineBtnX + engineBtnW + 14;
-    int editW = sb.right - editX - 20;
+    // Edit box — tall enough for 16pt text, gap after engine icon
+    int editX = engineBtnX + engineBtnW + 10;
+    int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    int editH = 32;
-    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
+    // 16pt at 96 DPI ≈ 21px char height; add padding for descenders
+    int editH = 34;
+    int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -708,7 +712,7 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
             auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
             if (pBmp) {
-                REAL iconSize = 20.0f;
+                REAL iconSize = 24.0f;
                 REAL iconX = ((rc.right - rc.left) - iconSize) / 2.0f;
                 REAL iconY = ((rc.bottom - rc.top) - iconSize) / 2.0f;
                 g.DrawImage(pBmp, iconX, iconY, iconSize, iconSize);
@@ -1672,12 +1676,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE: {
         g_hWnd = hWnd;
         const wchar_t* primaryFont = GetModernFontFamilyName();
-        // 16pt font for address bar (standard 96 DPI: 16 * 96 / 72 = 21.33pt -> height 28)
-        HFONT hFont = CreateFontW(28, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 16pt font for address bar — negative height = point-based sizing (MulDiv(16,96,72)=21)
+        HFONT hFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
         if (!hFont) {
-            hFont = CreateFontW(28, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(-MulDiv(16, 96, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
