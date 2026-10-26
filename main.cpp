@@ -33,7 +33,7 @@ constexpr int TOP_BAR_HEIGHT = 120;
 constexpr int TAB_BAR_HEIGHT = 54;
 constexpr int TAB_WIDTH = 260;
 
-constexpr int SEARCH_BAR_HEIGHT = 48;
+constexpr int SEARCH_BAR_HEIGHT = 38;
 constexpr int NAV_BUTTONS_WIDTH = 132;
 
 constexpr int IDC_EDIT_URL = 101;
@@ -412,14 +412,13 @@ void NavigateToInput(const std::wstring& input) {
 }
 
 RECT GetSearchBarOuterRect(int clientWidth) {
-    int startX = NAV_BUTTONS_WIDTH;
-    // Keep address bar proportional - enlarged to extend generously across the toolbar
-    int maxOmniWidth = 1150;
-    int availableWidth = clientWidth - startX - 80;
-    int omniWidth = (availableWidth > maxOmniWidth) ? maxOmniWidth : availableWidth;
-    if (omniWidth < 280) omniWidth = 280;
-    int endX = startX + omniWidth;
-    return RECT{ startX, TAB_BAR_HEIGHT + 7, endX, TAB_BAR_HEIGHT + 7 + SEARCH_BAR_HEIGHT };
+    int startX = 126; // Clean spacing after Reload button (ends at x=118)
+    int endX = clientWidth - 24; // Clean, constant 24px right margin across all window resizes
+    if (endX - startX < 280) {
+        endX = startX + 280;
+    }
+    int top = TAB_BAR_HEIGHT + (TOP_BAR_HEIGHT - TAB_BAR_HEIGHT - SEARCH_BAR_HEIGHT) / 2;
+    return RECT{ startX, top, endX, top + SEARCH_BAR_HEIGHT };
 }
 
 void UpdateOmniboxCueBanner() {
@@ -441,23 +440,21 @@ void ResizeControls(int width, int height) {
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
 
-    // Engine icon button — square, vertically centered inside pill
-    int engineBtnW = 32;
-    int engineBtnH = 32;
-    int engineBtnX = sb.left + 12;
-    int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnH) / 2;
+    // Magnifying glass icon inside pill
+    int engineBtnSize = 28;
+    int engineBtnX = sb.left + 8;
+    int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnSize) / 2;
 
     if (g_hBtnEngine) {
-        SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnSize, engineBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    // Edit box — tall enough for 16pt text, gap after engine icon
-    int editX = engineBtnX + engineBtnW + 10;
+    // Edit box — tall enough for 16pt text, gap after magnifying glass
+    int editX = engineBtnX + engineBtnSize + 6;
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    // 16pt at 96 DPI ≈ 21px char height; 30px height perfectly matches Segoe UI ascent+descent
-    int editH = 30;
+    int editH = 28;
     int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
 
     if (g_hEdit) {
@@ -467,12 +464,9 @@ void ResizeControls(int width, int height) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
 
-    // Place Settings Button cleanly right next to the address bar (with pleasant padding)
-    int settingsBtnSize = 32;
-    int settingsBtnX = sb.right + 12;
-    int settingsBtnY = navY;
+    // Strikethrough buttons removed: hide settings button from toolbar
     if (g_hBtnSettings) {
-        SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(g_hBtnSettings, SW_HIDE);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -749,28 +743,35 @@ LRESULT CALLBACK EngineButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         Graphics g(hdc);
 
         // Fill background with omnibox pill warm beige / dark grey
-        Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        Color bgCol = g_isDarkMode ? Color(255, 44, 44, 52) : Color(255, 247, 237, 218);
         g.Clear(bgCol);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
-        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
-            AddRoundedRect(btnPath, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top), 8.0f);
-            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 239, 230, 129));
+            AddRoundedRect(btnPath, (REAL)rc.left + 1.0f, (REAL)rc.top + 1.0f, (REAL)(rc.right - rc.left - 2), (REAL)(rc.bottom - rc.top - 2), 6.0f);
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 236, 224, 202));
             g.FillPath(&hoverBrush, &btnPath);
         }
 
-        // Draw Selected Engine Icon
-        if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
-            auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
-            if (pBmp) {
-                REAL iconSize = 24.0f;
-                REAL iconX = ((rc.right - rc.left) - iconSize) / 2.0f;
-                REAL iconY = ((rc.bottom - rc.top) - iconSize) / 2.0f;
-                g.DrawImage(pBmp, iconX, iconY, iconSize, iconSize);
-            }
-        }
+        // Draw crisp vector magnifying glass matching Edge search icon in address bar
+        REAL cx = (rc.right - rc.left) / 2.0f;
+        REAL cy = (rc.bottom - rc.top) / 2.0f;
+        Color iconCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 115, 108, 96);
+        Pen iconPen(iconCol, 1.6f);
+        iconPen.SetStartCap(LineCapRound);
+        iconPen.SetEndCap(LineCapRound);
+
+        // Circular lens (radius 4.5f) centered at (cx - 1.5f, cy - 1.5f)
+        REAL radius = 4.5f;
+        g.DrawEllipse(&iconPen, cx - 1.5f - radius, cy - 1.5f - radius, radius * 2.0f, radius * 2.0f);
+
+        // Handle at 45 degrees extending down-right
+        REAL hx1 = cx - 1.5f + radius * 0.7071f;
+        REAL hy1 = cy - 1.5f + radius * 0.7071f;
+        REAL hx2 = hx1 + 4.5f;
+        REAL hy2 = hy1 + 4.5f;
+        g.DrawLine(&iconPen, hx1, hy1, hx2, hy2);
 
         if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
         return 0;
@@ -1690,10 +1691,7 @@ void ShowEngineDropdown() {
 }
 
 void ShowSettingsDropdown() {
-    if (!g_hMenuWnd || !g_hBtnSettings) return;
-
-    RECT btnRc;
-    GetWindowRect(g_hBtnSettings, &btnRc);
+    if (!g_hMenuWnd) return;
 
     int menuW = MENU_WIDTH;
     int menuH = CalculateMenuHeight();
@@ -1701,13 +1699,24 @@ void ShowSettingsDropdown() {
     RECT workArea;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
 
-    // Align right edge of menu with button right edge
-    int posX = btnRc.right - menuW + 8;
+    int posX = 0;
+    int posY = 0;
+
+    if (g_hBtnSettings && IsWindowVisible(g_hBtnSettings)) {
+        RECT btnRc;
+        GetWindowRect(g_hBtnSettings, &btnRc);
+        posX = btnRc.right - menuW + 8;
+        posY = btnRc.bottom + 6;
+    } else if (g_hWnd) {
+        RECT winRc;
+        GetWindowRect(g_hWnd, &winRc);
+        posX = winRc.right - menuW - 20;
+        posY = winRc.top + TOP_BAR_HEIGHT + 4;
+    }
+
     if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
     if (posX < workArea.left) posX = workArea.left + 10;
-
-    int posY = btnRc.bottom + 6;
-    if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+    if (posY + menuH > workArea.bottom) posY = workArea.bottom - menuH - 10;
 
     g_hoveredIndex = -1;
 
@@ -1797,17 +1806,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         UpdateOmniboxCueBanner();
         g_originalEditProc = (WNDPROC)SetWindowLongPtr(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
-        // Arrow Action Button
+        // Arrow Action Button (hidden)
         g_hBtnSearch = CreateWindowExW(
             0, L"HazeSearchBtnClass", L"",
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD,
             550, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SEARCH, g_hInstance, nullptr);
 
-        // Chevron Settings Dropdown Button
+        // Chevron Settings Dropdown Button (hidden from toolbar per modern layout)
         g_hBtnSettings = CreateWindowExW(
             0, L"HazeSettingsBtnClass", L"",
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD,
             586, TAB_BAR_HEIGHT + 11, 28, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SETTINGS, g_hInstance, nullptr);
 
@@ -1864,13 +1873,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HDC hdc = (HDC)wParam;
         if (g_isDarkMode) {
             SetTextColor(hdc, RGB(237, 237, 240));
-            SetBkColor(hdc, RGB(40, 40, 50));
-            if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(40, 40, 50));
+            SetBkColor(hdc, RGB(44, 44, 52));
+            if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(44, 44, 52));
             return (LRESULT)s_editBrushDark;
         } else {
             SetTextColor(hdc, RGB(60, 58, 54));
-            SetBkColor(hdc, RGB(254, 249, 235));
-            if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(254, 249, 235));
+            SetBkColor(hdc, RGB(247, 237, 218));
+            if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(247, 237, 218));
             return (LRESULT)s_editBrushLight;
         }
     }
@@ -1878,10 +1887,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hBtn = (HWND)lParam;
         if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
             if (g_isDarkMode) {
-                if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(40, 40, 50));
+                if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(44, 44, 52));
                 return (LRESULT)s_pillBrushDark;
             } else {
-                if (!s_pillBrushLight) s_pillBrushLight = CreateSolidBrush(RGB(254, 249, 235));
+                if (!s_pillBrushLight) s_pillBrushLight = CreateSolidBrush(RGB(247, 237, 218));
                 return (LRESULT)s_pillBrushLight;
             }
         }
@@ -2054,16 +2063,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         g.DrawLine(&plusPen, ntcx - 5.0f, ntcy, ntcx + 5.0f, ntcy);
         g.DrawLine(&plusPen, ntcx, ntcy - 5.0f, ntcx, ntcy + 5.0f);
 
-        // 4. Draw Pill-Shaped Rounded Search Bar with Olive border (#76701B / RGB(118, 112, 27))
+        // 4. Draw Pill-Shaped Rounded Search Bar (borderless soft warm-beige pill)
         RECT searchRc = GetSearchBarOuterRect(width);
-        Color borderColor;
-        if (g_isDarkMode) {
-            borderColor = g_isEditFocused ? Color(255, 176, 167, 56) : Color(255, 62, 62, 76);
-        } else {
-            borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
-        }
-        Pen borderPen(borderColor, 1.6f);
-
         REAL sx = (REAL)searchRc.left;
         REAL sy = (REAL)searchRc.top;
         REAL sw = (REAL)(searchRc.right - searchRc.left);
@@ -2075,10 +2076,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        Color omniBgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
+        Color omniBgCol = g_isDarkMode ? Color(255, 44, 44, 52) : Color(255, 247, 237, 218);
         SolidBrush omniboxBgBrush(omniBgCol);
         g.FillPath(&omniboxBgBrush, &sbPath);
-        g.DrawPath(&borderPen, &sbPath);
+
+        // When focused, draw subtle accent border, otherwise completely borderless matching Edge reference
+        if (g_isEditFocused) {
+            Color focusBorderCol = g_isDarkMode ? Color(255, 120, 140, 180) : Color(255, 205, 190, 165);
+            Pen focusBorderPen(focusBorderCol, 1.2f);
+            g.DrawPath(&focusBorderPen, &sbPath);
+        }
 
         // 5. Title bar Minimize, Maximize, Close Buttons on extreme right
         RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
@@ -2258,6 +2265,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     }
                     return 0;
                 }
+            }
+        } else if (pt.y < TOP_BAR_HEIGHT) {
+            RECT sb = GetSearchBarOuterRect(width);
+            if (PtInRect(&sb, pt)) {
+                if (g_hEdit) {
+                    SetFocus(g_hEdit);
+                    SendMessage(g_hEdit, EM_SETSEL, 0, -1);
+                }
+                return 0;
             }
         }
         break;
