@@ -291,100 +291,6 @@
     font-weight: 500;
   }
 
-  /* Engine List / Options */
-  .engine-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .engine-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 18px;
-    border: 1.5px solid var(--card-border);
-    border-radius: 12px;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    background-color: var(--card-bg);
-  }
-
-  .engine-item:hover {
-    border-color: var(--accent);
-    background-color: var(--tile-hover);
-  }
-
-  .engine-item.selected {
-    border-color: var(--tile-selected-border);
-    background-color: var(--tile-selected-bg);
-  }
-
-  .engine-info {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .engine-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #FFF;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    overflow: hidden;
-  }
-
-  .engine-icon img {
-    width: 20px;
-    height: 20px;
-    object-fit: contain;
-  }
-
-  .engine-name {
-    font-size: 15px;
-    font-weight: 500;
-  }
-
-  .engine-url {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-top: 2px;
-  }
-
-  .radio-check {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: 2px solid var(--card-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
-  }
-
-  .engine-item.selected .radio-check {
-    border-color: var(--accent);
-    background-color: var(--accent);
-  }
-
-  .radio-check::after {
-    content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #FFF;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-
-  .engine-item.selected .radio-check::after {
-    opacity: 1;
-  }
-
   /* Status Toast */
   .toast {
     position: fixed;
@@ -440,13 +346,7 @@
         Personalisation
       </button>
 
-      <button class="nav-item" data-tab="search">
-        <svg viewBox="0 0 24 24">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        Search
-      </button>
+
     </nav>
   </aside>
 
@@ -495,86 +395,6 @@
       </div>
     </section>
 
-    <!-- Search Tab -->
-    <section id="search" class="content-section">
-      <div class="section-header">
-        <h1 class="section-title">Search Engine</h1>
-        <p class="section-desc">Choose your default search provider for the central search bar and omnibox.</p>
-      </div>
-
-      <div class="card">
-        <h2 class="card-subtitle">Default Search Engine</h2>
-        <p class="card-help">Queries submitted in the homepage search bar, omnibox, and microphone search will use this engine.</p>
-
-        <div class="engine-list" id="engineList">
-          <!-- Populated dynamically / with defaults -->
-          <div class="engine-item selected" data-index="0" onclick="selectEngine(0)">
-            <div class="engine-info">
-              <div class="engine-icon">
-                <img src="icons/google.png" alt="Google" onerror="this.src='https://www.google.com/favicon.ico'">
-              </div>
-              <div>
-                <div class="engine-name">Google</div>
-                <div class="engine-url">https://www.google.com/search?q=</div>
-              </div>
-            </div>
-            <div class="radio-check"></div>
-          </div>
-
-          <div class="engine-item" data-index="1" onclick="selectEngine(1)">
-            <div class="engine-info">
-              <div class="engine-icon">
-                <img src="icons/bing.png" alt="Bing" onerror="this.src='https://www.bing.com/favicon.ico'">
-              </div>
-              <div>
-                <div class="engine-name">Bing</div>
-                <div class="engine-url">https://www.bing.com/search?q=</div>
-              </div>
-            </div>
-            <div class="radio-check"></div>
-          </div>
-
-          <div class="engine-item" data-index="2" onclick="selectEngine(2)">
-            <div class="engine-info">
-              <div class="engine-icon">
-                <img src="icons/duckduckgo.png" alt="DuckDuckGo" onerror="this.src='https://duckduckgo.com/favicon.ico'">
-              </div>
-              <div>
-                <div class="engine-name">DuckDuckGo</div>
-                <div class="engine-url">https://duckduckgo.com/?q=</div>
-              </div>
-            </div>
-            <div class="radio-check"></div>
-          </div>
-
-          <div class="engine-item" data-index="3" onclick="selectEngine(3)">
-            <div class="engine-info">
-              <div class="engine-icon">
-                <img src="icons/perplexity.png" alt="Perplexity" onerror="this.src='https://www.perplexity.ai/favicon.ico'">
-              </div>
-              <div>
-                <div class="engine-name">Perplexity</div>
-                <div class="engine-url">https://www.perplexity.ai/search?q=</div>
-              </div>
-            </div>
-            <div class="radio-check"></div>
-          </div>
-
-          <div class="engine-item" data-index="4" onclick="selectEngine(4)">
-            <div class="engine-info">
-              <div class="engine-icon">
-                <img src="icons/wikipedia.png" alt="Wikipedia" onerror="this.src='https://en.wikipedia.org/favicon.ico'">
-              </div>
-              <div>
-                <div class="engine-name">Wikipedia</div>
-                <div class="engine-url">https://en.wikipedia.org/w/index.php?search=</div>
-              </div>
-            </div>
-            <div class="radio-check"></div>
-          </div>
-        </div>
-      </div>
-    </section>
   </main>
 </div>
 
@@ -582,7 +402,7 @@
 
 <script>
   let currentTheme = localStorage.getItem('haze_theme') || 'light';
-  let currentEngine = parseInt(localStorage.getItem('haze_engine') || '0', 10);
+
 
   function applyTheme(theme) {
     currentTheme = theme;
@@ -609,30 +429,7 @@
     showToast('Theme switched to ' + (theme === 'dark' ? 'Dark' : 'Light'));
   }
 
-  function applyEngine(idx) {
-    currentEngine = idx;
-    localStorage.setItem('haze_engine', idx);
-    const items = document.querySelectorAll('.engine-item');
-    items.forEach((item) => {
-      const itemIdx = parseInt(item.getAttribute('data-index'), 10);
-      if (itemIdx === idx) {
-        item.classList.add('selected');
-      } else {
-        item.classList.remove('selected');
-      }
-    });
-  }
 
-  function selectEngine(idx) {
-    applyEngine(idx);
-    if (window.chrome && window.chrome.webview) {
-      window.chrome.webview.postMessage(JSON.stringify({
-        type: 'set_engine',
-        index: idx
-      }));
-    }
-    showToast('Default search engine updated');
-  }
 
   // Sidebar tab switching
   const navItems = document.querySelectorAll('.nav-item');
@@ -664,7 +461,7 @@
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (data.type === 'sync_state') {
           if (data.theme) applyTheme(data.theme);
-          if (data.engine !== undefined) applyEngine(data.engine);
+          
         }
       } catch (err) {
         console.error('Error handling sync message:', err);
@@ -677,7 +474,7 @@
 
   // Initialize from storage
   applyTheme(currentTheme);
-  applyEngine(currentEngine);
+  
 </script>
 </body>
 </html>
