@@ -42,6 +42,7 @@ constexpr int IDC_BTN_BACK = 103;
 constexpr int IDC_BTN_FORWARD = 104;
 constexpr int IDC_BTN_RELOAD = 105;
 constexpr int IDC_BTN_ENGINE = 106;
+constexpr int IDC_BTN_SETTINGS = 107;
 
 constexpr int MIN_WINDOW_WIDTH = 1405;
 constexpr int MIN_WINDOW_HEIGHT = 850;
@@ -107,6 +108,7 @@ HWND g_hBtnEngine = nullptr;
 HWND g_hBtnBack = nullptr;
 HWND g_hBtnForward = nullptr;
 HWND g_hBtnReload = nullptr;
+HWND g_hBtnSettings = nullptr;
 HWND g_hMenuWnd = nullptr;
 HWND g_hEngineDropdownWnd = nullptr;
 
@@ -114,6 +116,7 @@ WNDPROC g_originalEditProc = nullptr;
 WNDPROC g_originalSearchBtnProc = nullptr;
 WNDPROC g_originalEngineBtnProc = nullptr;
 WNDPROC g_originalNavBtnProc = nullptr;
+WNDPROC g_originalSettingsBtnProc = nullptr;
 
 HICON g_hAppIcon = nullptr;
 ULONG_PTR g_gdiplusToken = 0;
@@ -126,6 +129,7 @@ int g_hoveredCloseTabIndex = -1;
 bool g_isHoveringNewTab = false;
 bool g_isSearchBtnHovered = false;
 bool g_isEngineBtnHovered = false;
+bool g_isSettingsBtnHovered = false;
 bool g_isEditFocused = false;
 
 std::wstring g_homePageHtml;
@@ -372,8 +376,12 @@ void ResizeControls(int width, int height) {
 
     int btnMargin = 8;
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
+    int chevronBtnW = 28;
+    int settingsBtnX = sb.right - btnMargin - chevronBtnW - 4;
+    int searchBtnX = settingsBtnX - btnSize - 4;
+
     int editX = engineBtnX + engineBtnW + 6;
-    int editW = (sb.right - btnMargin - btnSize - 12) - editX;
+    int editW = searchBtnX - editX - 6;
     if (editW < 50) editW = 50;
 
     int editH = 22;
@@ -383,7 +391,10 @@ void ResizeControls(int width, int height) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hBtnSearch) {
-        SetWindowPos(g_hBtnSearch, nullptr, sb.right - btnMargin - btnSize - 6, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(g_hBtnSearch, nullptr, searchBtnX, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (g_hBtnSettings) {
+        SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, sb.top + btnMargin, chevronBtnW, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -436,6 +447,74 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         break;
     }
     return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+}
+
+void ShowSettingsDropdown();
+
+// Settings Chevron Dropdown Button at the right end of Omnibox
+LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+
+        // Fill background with omnibox pill warm beige
+        SolidBrush bgBrush(Color(255, 254, 249, 235));
+        g.FillRectangle(&bgBrush, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
+        if (g_isSettingsBtnHovered) {
+            SolidBrush hoverBrush(Color(255, 239, 230, 129));
+            g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
+        }
+
+        // Draw chevron down icon matching the uploaded image: ∨
+        Pen chevronPen(Color(255, 60, 58, 54), 2.4f);
+        chevronPen.SetStartCap(LineCapRound);
+        chevronPen.SetEndCap(LineCapRound);
+        chevronPen.SetLineJoin(LineJoinRound);
+
+        REAL cx = (rc.left + rc.right) / 2.0f;
+        REAL cy = (rc.top + rc.bottom) / 2.0f;
+        REAL sz = 5.2f;
+
+        // Symmetric rounded 'V' chevron
+        PointF pts[] = {
+            PointF(cx - sz, cy - 2.5f),
+            PointF(cx, cy + 2.5f),
+            PointF(cx + sz, cy - 2.5f)
+        };
+        g.DrawLines(&chevronPen, pts, 3);
+
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!g_isSettingsBtnHovered) {
+            g_isSettingsBtnHovered = true;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        g_isSettingsBtnHovered = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        break;
+    }
+    case WM_LBUTTONDOWN: {
+        ShowSettingsDropdown();
+        return 0;
+    }
+    }
+    return CallWindowProc(g_originalSettingsBtnProc, hWnd, uMsg, wParam, lParam);
 }
 
 // Crisp arrow search button
@@ -1271,15 +1350,43 @@ void ShowEngineDropdown() {
     InvalidateRect(g_hEngineDropdownWnd, nullptr, TRUE);
 }
 
+void ShowSettingsDropdown() {
+    if (!g_hMenuWnd || !g_hBtnSettings) return;
+
+    RECT btnRc;
+    GetWindowRect(g_hBtnSettings, &btnRc);
+
+    int menuW = MENU_WIDTH;
+    int menuH = CalculateMenuHeight();
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    // Align right edge of menu with button right edge
+    int posX = btnRc.right - menuW + 8;
+    if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
+    if (posX < workArea.left) posX = workArea.left + 10;
+
+    int posY = btnRc.bottom + 6;
+    if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+
+    g_hoveredIndex = -1;
+
+    SetWindowPos(g_hMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_hMenuWnd);
+    SetFocus(g_hMenuWnd);
+    InvalidateRect(g_hMenuWnd, nullptr, TRUE);
+}
+
 void SetupMenuItems() {
     g_menuItems.clear();
     g_menuItems.push_back({ std::wstring(APP_NAME) + L" " + APP_VERSION, ACTION_VERSION, false, true, false });
     g_menuItems.push_back({ L"", (MenuAction)0, true, false, false });
-    g_menuItems.push_back({ L"Open HAZE", ACTION_OPEN_HAZE, false, false, true });
-    g_menuItems.push_back({ L"Open Search", ACTION_OPEN_SEARCH, false, false, true });
-    g_menuItems.push_back({ L"Settings", ACTION_SETTINGS, false, false, true });
+    g_menuItems.push_back({ L"Open HAZE Home", ACTION_OPEN_HAZE, false, false, true });
+    g_menuItems.push_back({ L"New Tab", ACTION_OPEN_SEARCH, false, false, true });
+    g_menuItems.push_back({ L"Browser Settings", ACTION_SETTINGS, false, false, true });
     g_menuItems.push_back({ L"", (MenuAction)0, true, false, false });
-    g_menuItems.push_back({ L"Quit", ACTION_QUIT, false, false, true });
+    g_menuItems.push_back({ L"Exit Haze", ACTION_QUIT, false, false, true });
 }
 
 // --------------------------------------------------------------------------
@@ -1347,6 +1454,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         g_originalSearchBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnSearch, GWLP_WNDPROC, (LONG_PTR)SearchButtonSubclassProc);
 
+        // Chevron Settings Dropdown Button
+        g_hBtnSettings = CreateWindowExW(
+            0, L"BUTTON", L"",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            586, TAB_BAR_HEIGHT + 11, 28, 32,
+            hWnd, (HMENU)(INT_PTR)IDC_BTN_SETTINGS, g_hInstance, nullptr);
+
+        g_originalSettingsBtnProc = (WNDPROC)SetWindowLongPtr(g_hBtnSettings, GWLP_WNDPROC, (LONG_PTR)SettingsButtonSubclassProc);
+
         g_nid.hWnd = hWnd;
         g_nid.uID = 1;
         g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -1368,6 +1484,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         else if (wmId == IDC_BTN_ENGINE) {
             ShowEngineDropdown();
+        }
+        else if (wmId == IDC_BTN_SETTINGS) {
+            ShowSettingsDropdown();
         }
         else if (wmId == IDC_BTN_BACK) {
             if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
@@ -1401,7 +1520,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_CTLCOLORBTN: {
         HWND hBtn = (HWND)lParam;
-        if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
+        if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch || hBtn == g_hBtnSettings) {
             static HBRUSH s_pillBrush = CreateSolidBrush(RGB(254, 249, 235));
             return (LRESULT)s_pillBrush;
         }
