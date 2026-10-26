@@ -413,7 +413,13 @@ void NavigateToInput(const std::wstring& input) {
 
 RECT GetSearchBarOuterRect(int clientWidth) {
     int startX = NAV_BUTTONS_WIDTH;
-    int endX = clientWidth - 52; // leaves space for settings button outside omnibox
+    // Keep address bar proportional - not overly stretched on wide/fullscreen monitors
+    // Center it nicely with a max width of ~820px or generous right margin
+    int maxOmniWidth = 840;
+    int availableWidth = clientWidth - startX - 80;
+    int omniWidth = (availableWidth > maxOmniWidth) ? maxOmniWidth : availableWidth;
+    if (omniWidth < 280) omniWidth = 280;
+    int endX = startX + omniWidth;
     return RECT{ startX, TAB_BAR_HEIGHT + 7, endX, TAB_BAR_HEIGHT + 7 + SEARCH_BAR_HEIGHT };
 }
 
@@ -448,7 +454,7 @@ void ResizeControls(int width, int height) {
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    int editH = 22;
+    int editH = 24;
     int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
 
     if (g_hEdit) {
@@ -458,9 +464,9 @@ void ResizeControls(int width, int height) {
         ShowWindow(g_hBtnSearch, SW_HIDE);
     }
 
-    // Place Settings Button cleanly outside the address bar on the right
+    // Place Settings Button cleanly right next to the address bar (with pleasant padding)
     int settingsBtnSize = 32;
-    int settingsBtnX = width - 44;
+    int settingsBtnX = sb.right + 12;
     int settingsBtnY = navY;
     if (g_hBtnSettings) {
         SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1622,11 +1628,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE: {
         g_hWnd = hWnd;
         const wchar_t* primaryFont = GetModernFontFamilyName();
-        HFONT hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // 12pt font at standard 96 DPI: -MulDiv(12, 96, 72) = -16 (or height 20)
+        HFONT hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, primaryFont);
         if (!hFont) {
-            hFont = CreateFontW(17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         }
@@ -1810,8 +1817,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         strFormat.SetTrimming(StringTrimmingEllipsisCharacter);
         strFormat.SetFormatFlags(StringFormatFlagsNoWrap);
 
-        // 3. Render Anti-Aliased Chrome-style tabs
-        // Pass 1: Render all inactive tabs first so the active tab's shoulders and flares layer cleanly on top
+        // 3. Render Anti-Aliased Clean Rounded Rectangular tabs
+        // Pass 1: Render all inactive tabs first
+        REAL tabRadius = 9.0f;
         for (size_t i = 0; i < g_tabs.size(); ++i) {
             if ((int)i == g_activeTabIndex) continue;
 
@@ -1824,12 +1832,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             REAL th = (REAL)(tabRc.bottom - tabRc.top - 4.0f);
 
             GraphicsPath inPath;
-            REAL inRadius = 8.0f;
-            inPath.AddArc(tx, ty, inRadius * 2.0f, inRadius * 2.0f, 180.0f, 90.0f);
-            inPath.AddArc(tx + tw - inRadius * 2.0f, ty, inRadius * 2.0f, inRadius * 2.0f, 270.0f, 90.0f);
-            inPath.AddArc(tx + tw - inRadius * 2.0f, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 0.0f, 90.0f);
-            inPath.AddArc(tx, ty + th - inRadius * 2.0f, inRadius * 2.0f, inRadius * 2.0f, 90.0f, 90.0f);
-            inPath.CloseFigure();
+            AddRoundedRect(inPath, tx, ty, tw, th, tabRadius);
 
             if (isHover) {
                 Color inHoverCol = g_isDarkMode ? Color(255, 48, 48, 56) : (isMaximized ? Color(255, 235, 230, 185) : Color(255, 242, 238, 208));
@@ -1871,39 +1874,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             g.DrawLine(&closePen, cx + sz, cy - sz, cx - sz, cy + sz);
         }
 
-        // Pass 2: Render Active Tab with smooth Chrome curve geometry and seamless toolbar integration
+        // Pass 2: Render Active Tab as a perfect rounded rectangle
         if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
             int i = g_activeTabIndex;
             RECT tabRc = GetTabRect(i, width);
 
             REAL tx = (REAL)tabRc.left;
-            REAL ty = (REAL)tabRc.top;
+            REAL ty = (REAL)tabRc.top + 2.0f;
             REAL tw = (REAL)(tabRc.right - tabRc.left);
-            REAL botY = (REAL)TAB_BAR_HEIGHT;
-
-            REAL rTop = 10.0f; // Soft rounded top shoulder
-            REAL rBot = 10.0f; // Smooth outward flare
+            REAL th = (REAL)(tabRc.bottom - tabRc.top - 4.0f);
 
             GraphicsPath activeTabPath;
-            // Flare bottom-left outward
-            activeTabPath.AddArc(tx - rBot, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
-            // Left vertical edge
-            activeTabPath.AddLine(tx, botY - rBot, tx, ty + rTop);
-            // Top-left shoulder
-            activeTabPath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
-            // Top flat edge
-            activeTabPath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
-            // Top-right shoulder
-            activeTabPath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
-            // Right vertical edge
-            activeTabPath.AddLine(tx + tw, ty + rTop, tx + tw, botY - rBot);
-            // Flare bottom-right outward
-            activeTabPath.AddArc(tx + tw, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 180.0f, -90.0f);
-            // Close into toolbar seamlessly
-            activeTabPath.AddLine(tx + tw + rBot, botY + 4.0f, tx - rBot, botY + 4.0f);
-            activeTabPath.CloseFigure();
+            AddRoundedRect(activeTabPath, tx, ty, tw, th, tabRadius);
 
-            // Fill active tab seamlessly with toolbar brush (no harsh border, just pure clean surface)
+            // Fill active tab seamlessly with toolbar brush
             g.FillPath(&toolbarBrush, &activeTabPath);
 
             if (g_hAppIcon) {
