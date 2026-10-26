@@ -442,22 +442,22 @@ void ResizeControls(int width, int height) {
     RECT sb = GetSearchBarOuterRect(width);
 
     // Engine selector button with icon + dropdown caret inside pill
-    int engineBtnW = 42;
+    int engineBtnW = 48;
     int engineBtnH = 28;
-    int engineBtnX = sb.left + 8;
+    int engineBtnX = sb.left + 10;
     int engineBtnY = sb.top + (SEARCH_BAR_HEIGHT - engineBtnH) / 2;
 
     if (g_hBtnEngine) {
         SetWindowPos(g_hBtnEngine, nullptr, engineBtnX, engineBtnY, engineBtnW, engineBtnH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    // Edit box — tall enough for 16pt text, gap after engine selector
+    // Edit box — tall enough for 16pt text, gap after engine selector, equally vertically centered inside pill
     int editX = engineBtnX + engineBtnW + 8;
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    int editH = 28;
-    int editY = sb.top + (SEARCH_BAR_HEIGHT - editH) / 2;
+    int editH = 24;
+    int editY = sb.top + 4;
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -556,14 +556,24 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
         if (GetFocus() != hWnd) {
             CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
             SendMessage(hWnd, EM_SETSEL, 0, -1);
+            CreateCaret(hWnd, nullptr, 2, 20);
+            ShowCaret(hWnd);
             return 0;
         }
         break;
     }
+    case WM_LBUTTONUP: {
+        LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+        if (g_isEditFocused) {
+            CreateCaret(hWnd, nullptr, 2, 20);
+            ShowCaret(hWnd);
+        }
+        return res;
+    }
     case WM_SETFOCUS: {
         g_isEditFocused = true;
         LRESULT res = CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
-        CreateCaret(hWnd, nullptr, 2, 22);
+        CreateCaret(hWnd, nullptr, 2, 20);
         ShowCaret(hWnd);
         if (g_hWnd) {
             RECT rc;
@@ -748,42 +758,48 @@ LRESULT CALLBACK EngineButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
         Graphics g(hdc);
 
-        // Fill background with omnibox pill warm beige / dark grey
-        Color bgCol = g_isDarkMode ? Color(255, 44, 44, 52) : Color(255, 247, 237, 218);
+        // Fill background with omnibox pill cream / dark grey
+        Color bgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
         g.Clear(bgCol);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
         if (g_isEngineBtnHovered) {
             GraphicsPath btnPath;
             AddRoundedRect(btnPath, (REAL)rc.left + 1.0f, (REAL)rc.top + 1.0f, (REAL)(rc.right - rc.left - 2), (REAL)(rc.bottom - rc.top - 2), 6.0f);
-            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 236, 224, 202));
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 60, 60, 75) : Color(255, 238, 232, 210));
             g.FillPath(&hoverBrush, &btnPath);
         }
 
-        // Draw Selected Engine Icon
+        // Draw Selected Engine Icon (scaled to fill icon area cleanly without internal padding)
         if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
             auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
             if (pBmp) {
-                REAL iconSize = 20.0f;
-                REAL iconX = 4.0f;
+                REAL glyphSrcX = (REAL)pBmp->GetWidth() * 0.16f;
+                REAL glyphSrcY = (REAL)pBmp->GetHeight() * 0.16f;
+                REAL glyphSrcW = (REAL)pBmp->GetWidth() * 0.68f;
+                REAL glyphSrcH = (REAL)pBmp->GetHeight() * 0.68f;
+
+                REAL iconSize = 22.0f;
+                REAL iconX = 6.0f;
                 REAL iconY = ((rc.bottom - rc.top) - iconSize) / 2.0f;
-                g.DrawImage(pBmp, iconX, iconY, iconSize, iconSize);
+                g.DrawImage(pBmp, RectF(iconX, iconY, iconSize, iconSize), glyphSrcX, glyphSrcY, glyphSrcW, glyphSrcH, UnitPixel);
             }
         }
 
-        // Draw small dropdown caret to select the search engine
-        Color caretCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 115, 108, 96);
+        // Draw clear dropdown caret to select the search engine
+        Color caretCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 118, 112, 27);
         Pen caretPen(caretCol, 1.8f);
         caretPen.SetStartCap(LineCapRound);
         caretPen.SetEndCap(LineCapRound);
         caretPen.SetLineJoin(LineJoinRound);
 
-        REAL caretX = (REAL)rc.right - 9.0f;
+        REAL caretX = (REAL)rc.right - 10.0f;
         REAL caretY = (rc.top + rc.bottom) / 2.0f;
         PointF caretPts[] = {
-            PointF(caretX - 3.2f, caretY - 1.8f),
-            PointF(caretX, caretY + 1.8f),
-            PointF(caretX + 3.2f, caretY - 1.8f)
+            PointF(caretX - 3.5f, caretY - 1.8f),
+            PointF(caretX, caretY + 2.0f),
+            PointF(caretX + 3.5f, caretY - 1.8f)
         };
         g.DrawLines(&caretPen, caretPts, 3);
 
@@ -929,19 +945,16 @@ LRESULT CALLBACK NavButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             g.DrawLine(&navPen, cx + shaftLen, cy, cx + shaftLen - wing, cy + wing);
         }
         else if (id == IDC_BTN_RELOAD) {
-            // Modern rounded circular arrow matching standard browser reload icon: ↻
-            REAL radius = 6.0f;
+            // Authentic browser circular reload arrow matching Edge reference: ↻
+            REAL radius = 5.6f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-            // Draw smooth 280 degree clockwise arc starting from top-right (30 deg)
-            g.DrawArc(&navPen, arcRect, 30.0f, 280.0f);
+            g.DrawArc(&navPen, arcRect, 28.0f, 264.0f);
 
-            // Arc ends at 310 degrees (approx cx + 3.86f, cy - 4.60f)
-            REAL tipX = cx + 3.86f;
-            REAL tipY = cy - 4.60f;
-
-            // Two symmetrical arrowhead wings pointing in tangent direction with circular endcaps
-            g.DrawLine(&navPen, tipX, tipY, tipX + 0.5f, tipY - 4.5f);
-            g.DrawLine(&navPen, tipX, tipY, tipX + 4.5f, tipY + 0.5f);
+            // Clockwise arrowhead at top-right pointing downwards into gap
+            REAL tipX = cx + 4.2f;
+            REAL tipY = cy - 2.0f;
+            g.DrawLine(&navPen, tipX, tipY, tipX - 3.2f, tipY - 3.6f);
+            g.DrawLine(&navPen, tipX, tipY, tipX + 3.0f, tipY - 3.2f);
         }
 
         if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
@@ -1887,13 +1900,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HDC hdc = (HDC)wParam;
         if (g_isDarkMode) {
             SetTextColor(hdc, RGB(237, 237, 240));
-            SetBkColor(hdc, RGB(44, 44, 52));
-            if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(44, 44, 52));
+            SetBkColor(hdc, RGB(40, 40, 50));
+            if (!s_editBrushDark) s_editBrushDark = CreateSolidBrush(RGB(40, 40, 50));
             return (LRESULT)s_editBrushDark;
         } else {
             SetTextColor(hdc, RGB(60, 58, 54));
-            SetBkColor(hdc, RGB(247, 237, 218));
-            if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(247, 237, 218));
+            SetBkColor(hdc, RGB(254, 249, 235));
+            if (!s_editBrushLight) s_editBrushLight = CreateSolidBrush(RGB(254, 249, 235));
             return (LRESULT)s_editBrushLight;
         }
     }
@@ -1901,10 +1914,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         HWND hBtn = (HWND)lParam;
         if (hBtn == g_hBtnEngine || hBtn == g_hBtnSearch) {
             if (g_isDarkMode) {
-                if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(44, 44, 52));
+                if (!s_pillBrushDark) s_pillBrushDark = CreateSolidBrush(RGB(40, 40, 50));
                 return (LRESULT)s_pillBrushDark;
             } else {
-                if (!s_pillBrushLight) s_pillBrushLight = CreateSolidBrush(RGB(247, 237, 218));
+                if (!s_pillBrushLight) s_pillBrushLight = CreateSolidBrush(RGB(254, 249, 235));
                 return (LRESULT)s_pillBrushLight;
             }
         }
@@ -2090,16 +2103,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         sbPath.AddArc(sx + sw - sbRadius * 2.0f, sy, sbRadius * 2.0f, sbRadius * 2.0f, 270.0f, 180.0f);
         sbPath.CloseFigure();
 
-        Color omniBgCol = g_isDarkMode ? Color(255, 44, 44, 52) : Color(255, 247, 237, 218);
+        Color omniBgCol = g_isDarkMode ? Color(255, 40, 40, 50) : Color(255, 254, 249, 235);
         SolidBrush omniboxBgBrush(omniBgCol);
         g.FillPath(&omniboxBgBrush, &sbPath);
 
-        // When focused, draw subtle accent border, otherwise completely borderless matching Edge reference
-        if (g_isEditFocused) {
-            Color focusBorderCol = g_isDarkMode ? Color(255, 120, 140, 180) : Color(255, 205, 190, 165);
-            Pen focusBorderPen(focusBorderCol, 1.2f);
-            g.DrawPath(&focusBorderPen, &sbPath);
+        Color borderColor;
+        if (g_isDarkMode) {
+            borderColor = g_isEditFocused ? Color(255, 176, 167, 56) : Color(255, 62, 62, 76);
+        } else {
+            borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
         }
+        Pen borderPen(borderColor, 1.6f);
+        g.DrawPath(&borderPen, &sbPath);
 
         // 5. Title bar Minimize, Maximize, Close Buttons on extreme right
         RECT minRc = GetCaptionBtnRect(CAPTION_BTN_MINIMIZE, width);
@@ -2230,6 +2245,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             InvalidateRect(hWnd, &topRc, FALSE);
         }
         return 0;
+    }
+    case WM_SETCURSOR: {
+        if ((HWND)wParam == hWnd) {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hWnd, &pt);
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            RECT sb = GetSearchBarOuterRect(rc.right - rc.left);
+            if (PtInRect(&sb, pt)) {
+                SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+                return TRUE;
+            }
+        }
+        break;
     }
     case WM_LBUTTONDOWN: {
         POINT pt{ LOWORD(lParam), HIWORD(lParam) };
