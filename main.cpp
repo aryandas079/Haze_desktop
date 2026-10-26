@@ -365,9 +365,9 @@ void ResizeControls(int width, int height) {
 
     // Search Bar layout
     RECT sb = GetSearchBarOuterRect(width);
-    int engineBtnW = 44;
+    int engineBtnW = 32;
     int engineBtnH = 32;
-    int engineBtnX = sb.left + 12;
+    int engineBtnX = sb.left + 10;
     int engineBtnY = sb.top + ((SEARCH_BAR_HEIGHT - engineBtnH) / 2);
 
     if (g_hBtnEngine) {
@@ -378,10 +378,9 @@ void ResizeControls(int width, int height) {
     int btnSize = SEARCH_BAR_HEIGHT - (btnMargin * 2);
     int chevronBtnW = 28;
     int settingsBtnX = sb.right - btnMargin - chevronBtnW - 4;
-    int searchBtnX = settingsBtnX - btnSize - 4;
 
-    int editX = engineBtnX + engineBtnW + 6;
-    int editW = searchBtnX - editX - 6;
+    int editX = engineBtnX + engineBtnW + 8;
+    int editW = settingsBtnX - editX - 8;
     if (editW < 50) editW = 50;
 
     int editH = 22;
@@ -391,7 +390,7 @@ void ResizeControls(int width, int height) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (g_hBtnSearch) {
-        SetWindowPos(g_hBtnSearch, nullptr, searchBtnX, sb.top + btnMargin, btnSize, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(g_hBtnSearch, SW_HIDE);
     }
     if (g_hBtnSettings) {
         SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, sb.top + btnMargin, chevronBtnW, btnSize, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -604,18 +603,9 @@ LRESULT CALLBACK EngineButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         if (g_selectedEngineIndex >= 0 && g_selectedEngineIndex < (int)g_searchEngines.size()) {
             auto pBmp = g_searchEngines[g_selectedEngineIndex].pBitmap;
             if (pBmp) {
-                g.DrawImage(pBmp, 4.0f, ((rc.bottom - rc.top) - 22.0f) / 2.0f, 22.0f, 22.0f);
+                g.DrawImage(pBmp, 6.0f, ((rc.bottom - rc.top) - 20.0f) / 2.0f, 20.0f, 20.0f);
             }
         }
-
-        // Draw small dropdown caret
-        Pen caretPen(Color(255, 95, 99, 104), 1.8f);
-        caretPen.SetStartCap(LineCapRound);
-        caretPen.SetEndCap(LineCapRound);
-        REAL caretX = (REAL)rc.right - 10.0f;
-        REAL caretY = (rc.top + rc.bottom) / 2.0f - 1.0f;
-        g.DrawLine(&caretPen, caretX - 3.5f, caretY - 2.0f, caretX, caretY + 2.0f);
-        g.DrawLine(&caretPen, caretX, caretY + 2.0f, caretX + 3.5f, caretY - 2.0f);
 
         EndPaint(hWnd, &ps);
         return 0;
@@ -1544,25 +1534,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         bool isMaximized = (wp.showCmd == SW_SHOWMAXIMIZED);
 
         // 1. Tab strip background
-        // In full screen / maximized mode, use a richer, deeper sage-olive tone with subtle gradient and bottom border
-        // so the tabs and title strip immediately catch the eye and don't blend into the window top.
-        if (isMaximized) {
-            // Elegant deeper olive sage #D8D29F -> #CBC48A gradient
-            LinearGradientBrush maxStripBrush(
-                Point(0, 0), Point(0, TAB_BAR_HEIGHT),
-                Color(255, 218, 212, 160),
-                Color(255, 203, 196, 140)
-            );
-            g.FillRectangle(&maxStripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
-
-            // Crisp separator line between tab strip and navigation bar in fullscreen
-            Pen stripBorderPen(Color(255, 185, 178, 120), 1.0f);
-            g.DrawLine(&stripBorderPen, 0.0f, (REAL)TAB_BAR_HEIGHT - 1.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT - 1.0f);
-        }
-        else {
-            SolidBrush stripBrush(Color(255, 233, 228, 190));
-            g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
-        }
+        SolidBrush stripBrush(Color(255, 233, 228, 190));
+        g.FillRectangle(&stripBrush, 0.0f, 0.0f, (REAL)width, (REAL)TAB_BAR_HEIGHT);
 
         // 2. Toolbar & Navigation row background (Cream #FEF9EB / RGB(254, 249, 235))
         SolidBrush toolbarBrush(Color(255, 254, 249, 235));
@@ -1650,9 +1623,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
             GraphicsPath activeTabPath;
             // Flare bottom-left outward
-            activeTabPath.AddArc(tx - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
+            activeTabPath.AddArc(tx - rBot, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
             // Left vertical edge
-            activeTabPath.AddLine(tx, botY - (rBot / 2.0f), tx, ty + rTop);
+            activeTabPath.AddLine(tx, botY - rBot, tx, ty + rTop);
             // Top-left shoulder
             activeTabPath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
             // Top flat edge
@@ -1660,30 +1633,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             // Top-right shoulder
             activeTabPath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
             // Right vertical edge
-            activeTabPath.AddLine(tx + tw, ty + rTop, tx + tw, botY - (rBot / 2.0f));
+            activeTabPath.AddLine(tx + tw, ty + rTop, tx + tw, botY - rBot);
             // Flare bottom-right outward
-            activeTabPath.AddArc(tx + tw - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 0.0f, -90.0f);
+            activeTabPath.AddArc(tx + tw, botY - (rBot * 2.0f), rBot * 2.0f, rBot * 2.0f, 180.0f, -90.0f);
             // Close into toolbar seamlessly
             activeTabPath.AddLine(tx + tw + rBot, botY + 4.0f, tx - rBot, botY + 4.0f);
             activeTabPath.CloseFigure();
 
-            // Fill active tab seamlessly with toolbar brush
+            // Fill active tab seamlessly with toolbar brush (no harsh border, just pure clean surface)
             g.FillPath(&toolbarBrush, &activeTabPath);
-
-            // Smooth outline path (only along the visible top, sides, and outward flares)
-            GraphicsPath outlinePath;
-            outlinePath.AddArc(tx - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 90.0f, -90.0f);
-            outlinePath.AddLine(tx, botY - (rBot / 2.0f), tx, ty + rTop);
-            outlinePath.AddArc(tx, ty, rTop * 2.0f, rTop * 2.0f, 180.0f, 90.0f);
-            outlinePath.AddLine(tx + rTop, ty, tx + tw - rTop, ty);
-            outlinePath.AddArc(tx + tw - (rTop * 2.0f), ty, rTop * 2.0f, rTop * 2.0f, 270.0f, 90.0f);
-            outlinePath.AddLine(tx + tw, ty + rTop, tx + tw, botY - (rBot / 2.0f));
-            outlinePath.AddArc(tx + tw - rBot, botY - rBot, rBot * 2.0f, rBot * 2.0f, 0.0f, -90.0f);
-
-            // Soft warm border color that blends naturally and prevents harsh contrast
-            Color softBorderCol = isMaximized ? Color(180, 185, 178, 125) : Color(120, 205, 198, 150);
-            Pen activeBorder(softBorderCol, 1.0f);
-            g.DrawPath(&activeBorder, &outlinePath);
 
             if (g_hAppIcon) {
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
