@@ -46,6 +46,7 @@ constexpr int IDC_BTN_FORWARD = 104;
 constexpr int IDC_BTN_RELOAD = 105;
 constexpr int IDC_BTN_ENGINE = 106;
 constexpr int IDC_BTN_SETTINGS = 107;
+constexpr int IDC_BTN_PROFILE = 108;
 
 constexpr int MIN_WINDOW_WIDTH = 1405;
 constexpr int MIN_WINDOW_HEIGHT = 850;
@@ -114,9 +115,11 @@ HWND g_hBtnEngine = nullptr;
 HWND g_hBtnBack = nullptr;
 HWND g_hBtnForward = nullptr;
 HWND g_hBtnReload = nullptr;
+HWND g_hBtnProfile = nullptr;
 HWND g_hBtnSettings = nullptr;
 HWND g_hTrayMenuWnd = nullptr;
 HWND g_hInAppMenuWnd = nullptr;
+HWND g_hProfileMenuWnd = nullptr;
 HWND g_hEngineDropdownWnd = nullptr;
 
 WNDPROC g_originalEditProc = nullptr;
@@ -124,6 +127,7 @@ WNDPROC g_originalSearchBtnProc = nullptr;
 WNDPROC g_originalEngineBtnProc = nullptr;
 WNDPROC g_originalNavBtnProc = nullptr;
 WNDPROC g_originalSettingsBtnProc = nullptr;
+WNDPROC g_originalProfileBtnProc = nullptr;
 
 HICON g_hAppIcon = nullptr;
 ULONG_PTR g_gdiplusToken = 0;
@@ -137,6 +141,7 @@ bool g_isHoveringNewTab = false;
 bool g_isSearchBtnHovered = false;
 bool g_isEngineBtnHovered = false;
 bool g_isSettingsBtnHovered = false;
+bool g_isProfileBtnHovered = false;
 bool g_isEditFocused = false;
 
 std::wstring g_homePageHtml;
@@ -438,7 +443,8 @@ RECT GetSearchBarOuterRect(int clientWidth) {
     int settingsBtnSize = 32;
     int settingsMarginRight = 14;
     int settingsBtnX = clientWidth - settingsBtnSize - settingsMarginRight;
-    int endX = settingsBtnX - 12; // Spans to 12px before settings dropdown button at end of screen
+    int profileBtnX = settingsBtnX - 38; // 38px spacing before settings button
+    int endX = profileBtnX - 12; // Omnibox cleanly ends 12px before profile button
     if (endX < startX + 250) {
         endX = startX + 250;
     }
@@ -499,6 +505,14 @@ void ResizeControls(int width, int height) {
     if (g_hBtnSettings) {
         SetWindowPos(g_hBtnSettings, nullptr, settingsBtnX, settingsBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_SHOWWINDOW);
         ShowWindow(g_hBtnSettings, SW_SHOW);
+    }
+
+    // Profile Avatar Button located directly to the left of settings button
+    int profileBtnX = settingsBtnX - 38;
+    int profileBtnY = settingsBtnY;
+    if (g_hBtnProfile) {
+        SetWindowPos(g_hBtnProfile, nullptr, profileBtnX, profileBtnY, settingsBtnSize, settingsBtnSize, SWP_NOZORDER | SWP_SHOWWINDOW);
+        ShowWindow(g_hBtnProfile, SW_SHOW);
     }
 
     if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
@@ -625,7 +639,190 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
     return CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
 }
 
+// Forward declarations
 void ShowSettingsDropdown();
+void ShowProfileDropdown();
+void SaveUserProfile();
+void LoadUserProfile();
+
+// --------------------------------------------------------------------------
+// User Profile Data & Storage
+// --------------------------------------------------------------------------
+struct UserProfile {
+    bool isLoggedIn = true;
+    std::wstring name = L"Aryan";
+    std::wstring email = L"aryandas.dev@gmail.com";
+    std::wstring avatarFileName = L"profile_avatar.png";
+    Gdiplus::Bitmap* pAvatarBitmap = nullptr;
+} g_userProfile;
+
+std::wstring GetProfileFilePath(const std::wstring& filename) {
+    wchar_t localAppData[MAX_PATH] = { 0 };
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH) > 0) {
+        std::wstring dir = std::wstring(localAppData) + L"\\Programs\\Haze";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        return dir + L"\\" + filename;
+    }
+    return filename;
+}
+
+void LoadUserProfile() {
+    std::wstring avatarPath = GetProfileFilePath(g_userProfile.avatarFileName);
+    if (GetFileAttributesW(avatarPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (g_userProfile.pAvatarBitmap) {
+            delete g_userProfile.pAvatarBitmap;
+        }
+        g_userProfile.pAvatarBitmap = Gdiplus::Bitmap::FromFile(avatarPath.c_str());
+    }
+    else {
+        // Fallback to local executable folder
+        if (GetFileAttributesW(L"profile_avatar.png") != INVALID_FILE_ATTRIBUTES) {
+            g_userProfile.pAvatarBitmap = Gdiplus::Bitmap::FromFile(L"profile_avatar.png");
+        }
+    }
+
+    std::wstring jsonPath = GetProfileFilePath(L"user_profile.json");
+    std::wifstream f(jsonPath);
+    if (f.is_open()) {
+        std::wstringstream buffer;
+        buffer << f.rdbuf();
+        std::wstring content = buffer.str();
+
+        if (content.find(L"\"isLoggedIn\": false") != std::wstring::npos) {
+            g_userProfile.isLoggedIn = false;
+        } else if (content.find(L"\"isLoggedIn\": true") != std::wstring::npos) {
+            g_userProfile.isLoggedIn = true;
+        }
+
+        size_t nPos = content.find(L"\"name\": \"");
+        if (nPos != std::wstring::npos) {
+            size_t nEnd = content.find(L"\"", nPos + 9);
+            if (nEnd != std::wstring::npos) {
+                g_userProfile.name = content.substr(nPos + 9, nEnd - (nPos + 9));
+            }
+        }
+
+        size_t ePos = content.find(L"\"email\": \"");
+        if (ePos != std::wstring::npos) {
+            size_t eEnd = content.find(L"\"", ePos + 10);
+            if (eEnd != std::wstring::npos) {
+                g_userProfile.email = content.substr(ePos + 10, eEnd - (ePos + 10));
+            }
+        }
+    }
+}
+
+void SaveUserProfile() {
+    std::wstring jsonPath = GetProfileFilePath(L"user_profile.json");
+    std::wofstream f(jsonPath);
+    if (f.is_open()) {
+        f << L"{\n";
+        f << L"  \"isLoggedIn\": " << (g_userProfile.isLoggedIn ? L"true" : L"false") << L",\n";
+        f << L"  \"name\": \"" << g_userProfile.name << L"\",\n";
+        f << L"  \"email\": \"" << g_userProfile.email << L"\",\n";
+        f << L"  \"avatarPath\": \"" << g_userProfile.avatarFileName << L"\"\n";
+        f << L"}\n";
+    }
+}
+
+// --------------------------------------------------------------------------
+// Profile Avatar Button located next to Settings Chevron
+// --------------------------------------------------------------------------
+LRESULT CALLBACK ProfileButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_HAND));
+        return TRUE;
+    case WM_PRINTCLIENT:
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = (uMsg == WM_PRINTCLIENT) ? (HDC)wParam : BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        Graphics g(hdc);
+        Color bgCol = g_isDarkMode ? Color(255, 34, 34, 40) : Color(255, 254, 249, 235);
+        g.Clear(bgCol);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
+        REAL cx = (rc.left + rc.right) / 2.0f;
+        REAL cy = (rc.top + rc.bottom) / 2.0f;
+        REAL sz = 28.0f;
+        REAL r = sz / 2.0f;
+
+        // Hover circle
+        if (g_isProfileBtnHovered) {
+            SolidBrush hoverBrush(g_isDarkMode ? Color(255, 52, 52, 62) : Color(255, 238, 232, 210));
+            g.FillEllipse(&hoverBrush, cx - r - 2.0f, cy - r - 2.0f, sz + 4.0f, sz + 4.0f);
+        }
+
+        if (g_userProfile.isLoggedIn && g_userProfile.pAvatarBitmap && g_userProfile.pAvatarBitmap->GetLastStatus() == Ok) {
+            // Neon cyan/blue ring (as in user screenshot 2)
+            Pen ringPen(Color(255, 56, 138, 246), 1.8f);
+            g.DrawEllipse(&ringPen, cx - r, cy - r, sz, sz);
+
+            GraphicsPath circleClip;
+            circleClip.AddEllipse(cx - r + 1.5f, cy - r + 1.5f, sz - 3.0f, sz - 3.0f);
+            Region oldClip;
+            g.GetClip(&oldClip);
+            g.SetClip(&circleClip, CombineModeReplace);
+
+            g.DrawImage(g_userProfile.pAvatarBitmap, cx - r + 1.5f, cy - r + 1.5f, sz - 3.0f, sz - 3.0f);
+            g.SetClip(&oldClip, CombineModeReplace);
+        }
+        else {
+            // Modern silhouette user avatar icon (logged out)
+            SolidBrush circleBg(g_isDarkMode ? Color(255, 55, 55, 65) : Color(255, 226, 222, 204));
+            g.FillEllipse(&circleBg, cx - r, cy - r, sz, sz);
+
+            Color iconCol = g_isDarkMode ? Color(255, 200, 200, 210) : Color(255, 100, 96, 88);
+            SolidBrush iconBrush(iconCol);
+
+            // Head circle
+            REAL headR = 4.2f;
+            REAL headCy = cy - 2.5f;
+            g.FillEllipse(&iconBrush, cx - headR, headCy - headR, headR * 2.0f, headR * 2.0f);
+
+            // Shoulders arc clipped inside the circle
+            GraphicsPath clipP;
+            clipP.AddEllipse(cx - r, cy - r, sz, sz);
+            Region origClip;
+            g.GetClip(&origClip);
+            g.SetClip(&clipP, CombineModeReplace);
+
+            REAL bodyW = 15.0f;
+            REAL bodyH = 12.0f;
+            g.FillEllipse(&iconBrush, cx - bodyW / 2.0f, cy + 3.0f, bodyW, bodyH);
+            g.SetClip(&origClip, CombineModeReplace);
+        }
+
+        if (uMsg == WM_PAINT) EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (!g_isProfileBtnHovered) {
+            g_isProfileBtnHovered = true;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        g_isProfileBtnHovered = false;
+        InvalidateRect(hWnd, nullptr, FALSE);
+        return 0;
+    }
+    case WM_LBUTTONDOWN: {
+        ShowProfileDropdown();
+        return 0;
+    }
+    }
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
 
 // Settings Chevron Dropdown Button located outside the address bar
 LRESULT CALLBACK SettingsButtonProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -1232,6 +1429,18 @@ void CreateNewTab(const std::wstring& initialUrl) {
                                                     }
                                                 }
                                             }
+
+                                            // Auto-detect Google sign-in / account access
+                                            if (uri && (wcsstr(uri, L"accounts.google.com") != nullptr || 
+                                                        wcsstr(uri, L"myaccount.google.com") != nullptr ||
+                                                        wcsstr(uri, L"google.com") != nullptr)) {
+                                                if (!g_userProfile.isLoggedIn) {
+                                                    g_userProfile.isLoggedIn = true;
+                                                    SaveUserProfile();
+                                                    if (g_hBtnProfile) InvalidateRect(g_hBtnProfile, nullptr, TRUE);
+                                                }
+                                            }
+
                                             CoTaskMemFree(uri);
                                         }
                                         return S_OK;
@@ -1787,6 +1996,492 @@ void ShowWinUI3Menu() {
      SetFocus(g_hEngineDropdownWnd);
      InvalidateRect(g_hEngineDropdownWnd, nullptr, TRUE);
  }
+
+// --------------------------------------------------------------------------
+// WinUI 3 Google Profile Dropdown Flyout Implementation (media 1 & 2)
+// --------------------------------------------------------------------------
+constexpr int PROFILE_MENU_WIDTH = 340;
+
+enum ProfileMenuAction {
+    PMA_NONE = 0,
+    PMA_SIGN_IN_GOOGLE,
+    PMA_PASSWORDS,
+    PMA_MANAGE_ACCOUNT,
+    PMA_CUSTOMIZE,
+    PMA_SIGN_OUT,
+    PMA_BROWSE_GUEST,
+    PMA_ADD_PROFILE
+};
+
+struct ProfileMenuItem {
+    std::wstring label;
+    std::wstring subtext;
+    ProfileMenuAction action;
+    bool isSeparator;
+    bool hasChevron;
+    int height;
+};
+
+std::vector<ProfileMenuItem> g_profileItems;
+int g_profileHoveredIndex = -1;
+bool g_profileBtnContinueHovered = false;
+
+void SetupProfileMenuItems() {
+    g_profileItems.clear();
+    if (g_userProfile.isLoggedIn) {
+        g_profileItems.push_back({ L"Passwords and autofill", L"", PMA_PASSWORDS, false, false, 38 });
+        g_profileItems.push_back({ L"Manage your Google Account", L"", PMA_MANAGE_ACCOUNT, false, false, 38 });
+        g_profileItems.push_back({ L"Customize profile", L"", PMA_CUSTOMIZE, false, false, 38 });
+        g_profileItems.push_back({ L"Sign out of Google", L"", PMA_SIGN_OUT, false, false, 38 });
+        g_profileItems.push_back({ L"", L"", PMA_NONE, true, false, 9 });
+        g_profileItems.push_back({ L"Browse as guest", L"", PMA_BROWSE_GUEST, false, false, 38 });
+        g_profileItems.push_back({ L"Add profile", L"", PMA_ADD_PROFILE, false, true, 38 });
+    }
+    else {
+        g_profileItems.push_back({ L"", L"", PMA_NONE, true, false, 9 });
+        g_profileItems.push_back({ L"Browse as guest", L"", PMA_BROWSE_GUEST, false, false, 38 });
+        g_profileItems.push_back({ L"Profile settings", L"", PMA_CUSTOMIZE, false, false, 38 });
+    }
+}
+
+int GetProfileHeaderHeight() {
+    return g_userProfile.isLoggedIn ? 150 : 160;
+}
+
+int CalculateProfileMenuHeight() {
+    int total = GetProfileHeaderHeight() + 10;
+    for (const auto& item : g_profileItems) {
+        total += item.height;
+    }
+    return total;
+}
+
+int GetProfileItemFromPoint(POINT pt) {
+    int curY = GetProfileHeaderHeight() + 6;
+    for (size_t i = 0; i < g_profileItems.size(); ++i) {
+        if (g_profileItems[i].isSeparator) {
+            curY += g_profileItems[i].height;
+            continue;
+        }
+        if (pt.y >= curY && pt.y < curY + g_profileItems[i].height) {
+            return (int)i;
+        }
+        curY += g_profileItems[i].height;
+    }
+    return -1;
+}
+
+LRESULT CALLBACK ProfileMenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        int w = rc.right - rc.left;
+        int h = rc.bottom - rc.top;
+
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
+        // WinUI 3 Clean Card Background (White / Dark #1F1F24)
+        Color bgCol = g_isDarkMode ? Color(255, 31, 31, 36) : Color(255, 255, 255, 255);
+        SolidBrush bgBrush(bgCol);
+        g.FillRectangle(&bgBrush, 0, 0, w, h);
+
+        // Subtle 1px boundary border
+        Color borderCol = g_isDarkMode ? Color(255, 55, 55, 65) : Color(255, 226, 228, 233);
+        Pen borderPen(borderCol, 1.0f);
+        g.DrawRectangle(&borderPen, 0, 0, w - 1, h - 1);
+
+        FontFamily* pFontFamily = new FontFamily(GetModernFontFamilyName());
+        if (pFontFamily->GetLastStatus() != Ok) {
+            delete pFontFamily;
+            pFontFamily = new FontFamily(L"Segoe UI");
+        }
+
+        // ================= HEADER SECTION =================
+        int headerH = GetProfileHeaderHeight();
+        REAL centerCX = (REAL)w / 2.0f;
+
+        if (g_userProfile.isLoggedIn) {
+            // Large circular avatar (64x64) with cyan neon glowing ring
+            REAL avatarSize = 62.0f;
+            REAL avatarR = avatarSize / 2.0f;
+            REAL avatarCY = 44.0f;
+
+            // Draw glowing cyan ring (matching user screenshot 2)
+            Pen ringPen(Color(255, 56, 138, 246), 2.2f);
+            g.DrawEllipse(&ringPen, centerCX - avatarR, avatarCY - avatarR, avatarSize, avatarSize);
+
+            if (g_userProfile.pAvatarBitmap && g_userProfile.pAvatarBitmap->GetLastStatus() == Ok) {
+                GraphicsPath clipP;
+                clipP.AddEllipse(centerCX - avatarR + 2.0f, avatarCY - avatarR + 2.0f, avatarSize - 4.0f, avatarSize - 4.0f);
+                Region oldReg;
+                g.GetClip(&oldReg);
+                g.SetClip(&clipP, CombineModeReplace);
+                g.DrawImage(g_userProfile.pAvatarBitmap, centerCX - avatarR + 2.0f, avatarCY - avatarR + 2.0f, avatarSize - 4.0f, avatarSize - 4.0f);
+                g.SetClip(&oldReg, CombineModeReplace);
+            }
+
+            // Pro badge pill in bottom right of avatar
+            REAL badgeW = 28.0f;
+            REAL badgeH = 14.0f;
+            REAL badgeX = centerCX + avatarR - 18.0f;
+            REAL badgeY = avatarCY + avatarR - 12.0f;
+            GraphicsPath badgePath;
+            AddRoundedRect(badgePath, badgeX, badgeY, badgeW, badgeH, 6.0f);
+            SolidBrush badgeBg(Color(255, 15, 56, 102)); // Deep navy blue pill
+            g.FillPath(&badgeBg, &badgePath);
+            Gdiplus::Font badgeFont(pFontFamily, 7.0f, FontStyleBold, UnitPoint);
+            SolidBrush badgeText(Color(255, 255, 255, 255));
+            StringFormat badgeFmt;
+            badgeFmt.SetAlignment(StringAlignmentCenter);
+            badgeFmt.SetLineAlignment(StringAlignmentCenter);
+            RectF badgeRc(badgeX, badgeY, badgeW, badgeH);
+            g.DrawString(L"Pro", -1, &badgeFont, badgeRc, &badgeFmt, &badgeText);
+
+            // User Name: e.g. "Aryan"
+            Gdiplus::Font nameFont(pFontFamily, 13.0f, FontStyleBold, UnitPoint);
+            Color nameCol = g_isDarkMode ? Color(255, 245, 245, 250) : Color(255, 25, 25, 30);
+            SolidBrush nameBrush(nameCol);
+            StringFormat centerFmt;
+            centerFmt.SetAlignment(StringAlignmentCenter);
+            centerFmt.SetLineAlignment(StringAlignmentCenter);
+            RectF nameRc(16.0f, 82.0f, (REAL)w - 32.0f, 24.0f);
+            g.DrawString(g_userProfile.name.c_str(), -1, &nameFont, nameRc, &centerFmt, &nameBrush);
+
+            // User Email: e.g. "aryandas.dev@gmail.com"
+            Gdiplus::Font emailFont(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
+            Color emailCol = g_isDarkMode ? Color(255, 160, 160, 175) : Color(255, 95, 99, 104);
+            SolidBrush emailBrush(emailCol);
+            RectF emailRc(16.0f, 107.0f, (REAL)w - 32.0f, 18.0f);
+            g.DrawString(g_userProfile.email.c_str(), -1, &emailFont, emailRc, &centerFmt, &emailBrush);
+
+            // Sync status subtitle (as in reference image 1)
+            Gdiplus::Font syncFont(pFontFamily, 8.5f, FontStyleRegular, UnitPoint);
+            Color syncCol = Color(255, 24, 128, 56); // Green sync check
+            SolidBrush syncBrush(syncCol);
+            RectF syncRc(16.0f, 126.0f, (REAL)w - 32.0f, 16.0f);
+            g.DrawString(L"✓ Synced with Google Account", -1, &syncFont, syncRc, &centerFmt, &syncBrush);
+        }
+        else {
+            // Logged out header: Silhouette avatar + "Sign in to HAZE" + "Continue with Google" primary button
+            REAL avatarSize = 54.0f;
+            REAL avatarR = avatarSize / 2.0f;
+            REAL avatarCY = 36.0f;
+
+            SolidBrush circleBg(g_isDarkMode ? Color(255, 55, 55, 65) : Color(255, 235, 232, 222));
+            g.FillEllipse(&circleBg, centerCX - avatarR, avatarCY - avatarR, avatarSize, avatarSize);
+
+            Color iconCol = g_isDarkMode ? Color(255, 190, 190, 200) : Color(255, 110, 105, 95);
+            SolidBrush iconBrush(iconCol);
+            REAL headR = 7.5f;
+            REAL headCy = avatarCY - 4.5f;
+            g.FillEllipse(&iconBrush, centerCX - headR, headCy - headR, headR * 2.0f, headR * 2.0f);
+
+            GraphicsPath clipP;
+            clipP.AddEllipse(centerCX - avatarR, avatarCY - avatarR, avatarSize, avatarSize);
+            Region origClip;
+            g.GetClip(&origClip);
+            g.SetClip(&clipP, CombineModeReplace);
+            REAL bodyW = 28.0f;
+            REAL bodyH = 22.0f;
+            g.FillEllipse(&iconBrush, centerCX - bodyW / 2.0f, avatarCY + 5.0f, bodyW, bodyH);
+            g.SetClip(&origClip, CombineModeReplace);
+
+            // Heading: "Sign in to HAZE"
+            Gdiplus::Font signinFont(pFontFamily, 11.5f, FontStyleBold, UnitPoint);
+            Color signinCol = g_isDarkMode ? Color(255, 240, 240, 245) : Color(255, 32, 33, 36);
+            SolidBrush signinBrush(signinCol);
+            StringFormat centerFmt;
+            centerFmt.SetAlignment(StringAlignmentCenter);
+            centerFmt.SetLineAlignment(StringAlignmentCenter);
+            RectF signinRc(16.0f, 68.0f, (REAL)w - 32.0f, 20.0f);
+            g.DrawString(L"Sign in to HAZE", -1, &signinFont, signinRc, &centerFmt, &signinBrush);
+
+            // Primary Google Action Button: "Continue with Google"
+            REAL btnW = (REAL)w - 48.0f;
+            REAL btnH = 36.0f;
+            REAL btnX = 24.0f;
+            REAL btnY = 98.0f;
+            GraphicsPath btnPath;
+            AddRoundedRect(btnPath, btnX, btnY, btnW, btnH, 8.0f);
+
+            Color btnBg = g_profileBtnContinueHovered ? 
+                (g_isDarkMode ? Color(255, 30, 95, 185) : Color(255, 26, 115, 232)) : 
+                (g_isDarkMode ? Color(255, 26, 85, 165) : Color(255, 10, 102, 214));
+            SolidBrush btnBgBrush(btnBg);
+            g.FillPath(&btnBgBrush, &btnPath);
+
+            // Google 'G' icon / text
+            Gdiplus::Font btnFont(pFontFamily, 9.5f, FontStyleBold, UnitPoint);
+            SolidBrush btnText(Color(255, 255, 255, 255));
+            RectF btnTextRc(btnX, btnY, btnW, btnH);
+            g.DrawString(L"G  Continue with Google", -1, &btnFont, btnTextRc, &centerFmt, &btnText);
+        }
+
+        // Horizontal divider under header
+        REAL divY = (REAL)headerH + 2.0f;
+        Color divCol = g_isDarkMode ? Color(255, 48, 48, 56) : Color(255, 230, 233, 238);
+        Pen divPen(divCol, 1.0f);
+        g.DrawLine(&divPen, 16.0f, divY, (REAL)w - 16.0f, divY);
+
+        // ================= MENU ITEMS LIST =================
+        Gdiplus::Font itemFont(pFontFamily, 9.5f, FontStyleRegular, UnitPoint);
+        Gdiplus::Font chevronFont(pFontFamily, 9.0f, FontStyleRegular, UnitPoint);
+
+        int curY = headerH + 6;
+        for (size_t i = 0; i < g_profileItems.size(); ++i) {
+            const auto& item = g_profileItems[i];
+            if (item.isSeparator) {
+                int lineY = curY + item.height / 2;
+                g.DrawLine(&divPen, 16.0f, (REAL)lineY, (REAL)w - 16.0f, (REAL)lineY);
+                curY += item.height;
+                continue;
+            }
+
+            bool isHover = ((int)i == g_profileHoveredIndex);
+            if (isHover) {
+                GraphicsPath itemPath;
+                AddRoundedRect(itemPath, 8.0f, (REAL)curY, (REAL)w - 16.0f, (REAL)item.height, 6.0f);
+                Color hoverCol = g_isDarkMode ? Color(255, 46, 46, 54) : Color(255, 243, 244, 246);
+                SolidBrush hoverBrush(hoverCol);
+                g.FillPath(&hoverBrush, &itemPath);
+            }
+
+            // Draw Icon
+            REAL iconCX = 28.0f;
+            REAL iconCY = (REAL)curY + (REAL)item.height / 2.0f;
+            Color itemIconCol = g_isDarkMode ? Color(255, 185, 185, 195) : Color(255, 95, 99, 104);
+            Pen iconPen(itemIconCol, 1.4f);
+            iconPen.SetStartCap(LineCapRound);
+            iconPen.SetEndCap(LineCapRound);
+            SolidBrush iconBrush(itemIconCol);
+
+            switch (item.action) {
+            case PMA_PASSWORDS: {
+                // Key icon
+                g.DrawEllipse(&iconPen, iconCX - 6.0f, iconCY - 3.5f, 7.0f, 7.0f);
+                g.DrawLine(&iconPen, iconCX + 1.0f, iconCY, iconCX + 7.0f, iconCY);
+                g.DrawLine(&iconPen, iconCX + 5.0f, iconCY, iconCX + 5.0f, iconCY + 3.0f);
+                break;
+            }
+            case PMA_MANAGE_ACCOUNT: {
+                // Google circular shield / badge icon
+                g.DrawEllipse(&iconPen, iconCX - 5.5f, iconCY - 5.5f, 11.0f, 11.0f);
+                Gdiplus::Font gFont(pFontFamily, 7.0f, FontStyleBold, UnitPoint);
+                StringFormat gFmt;
+                gFmt.SetAlignment(StringAlignmentCenter);
+                gFmt.SetLineAlignment(StringAlignmentCenter);
+                RectF gRc(iconCX - 6.0f, iconCY - 6.0f, 12.0f, 12.0f);
+                g.DrawString(L"G", -1, &gFont, gRc, &gFmt, &iconBrush);
+                break;
+            }
+            case PMA_CUSTOMIZE: {
+                // Pencil icon
+                g.DrawLine(&iconPen, iconCX - 5.0f, iconCY + 5.0f, iconCX + 4.0f, iconCY - 4.0f);
+                g.DrawLine(&iconPen, iconCX + 4.0f, iconCY - 4.0f, iconCX + 6.0f, iconCY - 2.0f);
+                g.DrawLine(&iconPen, iconCX + 6.0f, iconCY - 2.0f, iconCX - 3.0f, iconCY + 7.0f);
+                break;
+            }
+            case PMA_SIGN_OUT: {
+                // Sign out / exit icon
+                g.DrawRectangle(&iconPen, iconCX - 6.0f, iconCY - 5.5f, 7.0f, 11.0f);
+                g.DrawLine(&iconPen, iconCX - 2.0f, iconCY, iconCX + 6.0f, iconCY);
+                g.DrawLine(&iconPen, iconCX + 3.0f, iconCY - 3.0f, iconCX + 6.0f, iconCY);
+                g.DrawLine(&iconPen, iconCX + 3.0f, iconCY + 3.0f, iconCX + 6.0f, iconCY);
+                break;
+            }
+            case PMA_BROWSE_GUEST: {
+                // Guest silhouette mask / glasses icon
+                g.DrawEllipse(&iconPen, iconCX - 6.0f, iconCY - 2.5f, 5.0f, 5.0f);
+                g.DrawEllipse(&iconPen, iconCX + 1.0f, iconCY - 2.5f, 5.0f, 5.0f);
+                g.DrawLine(&iconPen, iconCX - 1.0f, iconCY, iconCX + 1.0f, iconCY);
+                break;
+            }
+            case PMA_ADD_PROFILE: {
+                // Plus icon
+                g.DrawLine(&iconPen, iconCX - 5.0f, iconCY, iconCX + 5.0f, iconCY);
+                g.DrawLine(&iconPen, iconCX, iconCY - 5.0f, iconCX, iconCY + 5.0f);
+                break;
+            }
+            default:
+                break;
+            }
+
+            // Draw Label
+            Color textCol = g_isDarkMode ? Color(255, 235, 235, 240) : Color(255, 32, 33, 36);
+            if (item.action == PMA_SIGN_OUT) {
+                textCol = g_isDarkMode ? Color(255, 245, 110, 110) : Color(255, 217, 48, 37); // Subtle red for sign out
+            }
+            SolidBrush textBrush(textCol);
+            StringFormat strFmt;
+            strFmt.SetAlignment(StringAlignmentNear);
+            strFmt.SetLineAlignment(StringAlignmentCenter);
+            RectF textRc(46.0f, (REAL)curY, (REAL)w - 80.0f, (REAL)item.height);
+            g.DrawString(item.label.c_str(), -1, &itemFont, textRc, &strFmt, &textBrush);
+
+            // Optional chevron right: >
+            if (item.hasChevron) {
+                Color chevCol = g_isDarkMode ? Color(255, 140, 140, 150) : Color(255, 160, 165, 175);
+                SolidBrush chevBrush(chevCol);
+                StringFormat rightFmt;
+                rightFmt.SetAlignment(StringAlignmentFar);
+                rightFmt.SetLineAlignment(StringAlignmentCenter);
+                RectF chevRc((REAL)w - 40.0f, (REAL)curY, 24.0f, (REAL)item.height);
+                g.DrawString(L">", -1, &chevronFont, chevRc, &rightFmt, &chevBrush);
+            }
+
+            curY += item.height;
+        }
+
+        delete pFontFamily;
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        int w = rc.right - rc.left;
+
+        // Check continue button hover if logged out
+        bool overContinue = false;
+        if (!g_userProfile.isLoggedIn) {
+            REAL btnW = (REAL)w - 48.0f;
+            REAL btnH = 36.0f;
+            REAL btnX = 24.0f;
+            REAL btnY = 98.0f;
+            if (pt.x >= btnX && pt.x <= btnX + btnW && pt.y >= btnY && pt.y <= btnY + btnH) {
+                overContinue = true;
+            }
+        }
+        if (overContinue != g_profileBtnContinueHovered) {
+            g_profileBtnContinueHovered = overContinue;
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+
+        int newHover = GetProfileItemFromPoint(pt);
+        if (newHover != g_profileHoveredIndex) {
+            g_profileHoveredIndex = newHover;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, hWnd, 0 };
+            TrackMouseEvent(&tme);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        if (g_profileHoveredIndex != -1 || g_profileBtnContinueHovered) {
+            g_profileHoveredIndex = -1;
+            g_profileBtnContinueHovered = false;
+            InvalidateRect(hWnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+    case WM_LBUTTONUP: {
+        POINT pt{ LOWORD(lParam), HIWORD(lParam) };
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        int w = rc.right - rc.left;
+
+        // Check "Continue with Google" click
+        if (!g_userProfile.isLoggedIn) {
+            REAL btnW = (REAL)w - 48.0f;
+            REAL btnH = 36.0f;
+            REAL btnX = 24.0f;
+            REAL btnY = 98.0f;
+            if (pt.x >= btnX && pt.x <= btnX + btnW && pt.y >= btnY && pt.y <= btnY + btnH) {
+                ShowWindow(hWnd, SW_HIDE);
+                NavigateToInput(L"https://accounts.google.com/signin");
+                return 0;
+            }
+        }
+
+        int clickedIdx = GetProfileItemFromPoint(pt);
+        if (clickedIdx >= 0 && clickedIdx < (int)g_profileItems.size()) {
+            ProfileMenuAction act = g_profileItems[clickedIdx].action;
+            ShowWindow(hWnd, SW_HIDE);
+
+            switch (act) {
+            case PMA_SIGN_IN_GOOGLE:
+                NavigateToInput(L"https://accounts.google.com/signin");
+                break;
+            case PMA_MANAGE_ACCOUNT:
+                NavigateToInput(L"https://myaccount.google.com");
+                break;
+            case PMA_PASSWORDS:
+                NavigateToInput(L"https://passwords.google.com");
+                break;
+            case PMA_CUSTOMIZE:
+                NavigateToInput(L"haze://settings");
+                break;
+            case PMA_SIGN_OUT:
+                g_userProfile.isLoggedIn = false;
+                SaveUserProfile();
+                if (g_hBtnProfile) InvalidateRect(g_hBtnProfile, nullptr, TRUE);
+                break;
+            case PMA_BROWSE_GUEST:
+                CreateNewTab(L"https://www.google.com");
+                break;
+            case PMA_ADD_PROFILE:
+                NavigateToInput(L"https://accounts.google.com/AddSession");
+                break;
+            default:
+                break;
+            }
+        }
+        return 0;
+    }
+    case WM_KEYDOWN: {
+        if (wParam == VK_ESCAPE) {
+            ShowWindow(hWnd, SW_HIDE);
+            return 0;
+        }
+        break;
+    }
+    case WM_KILLFOCUS:
+        ShowWindow(hWnd, SW_HIDE);
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+void ShowProfileDropdown() {
+    if (!g_hProfileMenuWnd || !g_hBtnProfile) return;
+
+    SetupProfileMenuItems();
+
+    RECT btnRc;
+    GetWindowRect(g_hBtnProfile, &btnRc);
+
+    int menuW = PROFILE_MENU_WIDTH;
+    int menuH = CalculateProfileMenuHeight();
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    int posX = btnRc.right - menuW + 16;
+    if (posX + menuW > workArea.right) posX = workArea.right - menuW - 10;
+    if (posX < workArea.left) posX = workArea.left + 10;
+
+    int posY = btnRc.bottom + 6;
+    if (posY + menuH > workArea.bottom) posY = btnRc.top - menuH - 6;
+
+    g_profileHoveredIndex = -1;
+    g_profileBtnContinueHovered = false;
+
+    SetWindowPos(g_hProfileMenuWnd, HWND_TOPMOST, posX, posY, menuW, menuH, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_hProfileMenuWnd);
+    SetFocus(g_hProfileMenuWnd);
+    InvalidateRect(g_hProfileMenuWnd, nullptr, TRUE);
+}
 
 
 // --------------------------------------------------------------------------
@@ -2488,6 +3183,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             550, TAB_BAR_HEIGHT + 11, 32, 32,
             hWnd, (HMENU)(INT_PTR)IDC_BTN_SEARCH, g_hInstance, nullptr);
 
+        // Profile Avatar Button
+        g_hBtnProfile = CreateWindowExW(
+            0, L"HazeProfileBtnClass", L"",
+            WS_CHILD | WS_VISIBLE,
+            550, TAB_BAR_HEIGHT + 11, 32, 32,
+            hWnd, (HMENU)(INT_PTR)IDC_BTN_PROFILE, g_hInstance, nullptr);
+
         // Chevron Settings Dropdown Button at the end of the address bar
         g_hBtnSettings = CreateWindowExW(
             0, L"HazeSettingsBtnClass", L"",
@@ -2520,6 +3222,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         else if (wmId == IDC_BTN_SETTINGS) {
             ShowSettingsDropdown();
+        }
+        else if (wmId == IDC_BTN_PROFILE) {
+            ShowProfileDropdown();
         }
         else if (wmId == IDC_BTN_BACK) {
             if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size() && g_tabs[g_activeTabIndex]->webview) {
@@ -3127,8 +3832,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     }
 
     LoadSearchEngineIcons();
+    LoadUserProfile();
     SetupTrayMenuItems();
     SetupInAppMenuItems();
+    SetupProfileMenuItems();
 
     // Register WinUI 3 Tray Menu Class (media 1)
     WNDCLASSEXW wmc{ sizeof(WNDCLASSEXW) };
@@ -3172,6 +3879,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         DwmSetWindowAttribute(g_hInAppMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
     }
 
+    // Register WinUI 3 Profile Menu Class (media 1 & 2)
+    WNDCLASSEXW wprof{ sizeof(WNDCLASSEXW) };
+    wprof.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
+    wprof.lpfnWndProc = ProfileMenuWndProc;
+    wprof.hInstance = hInstance;
+    wprof.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wprof.lpszClassName = L"HazeProfileMenuClass";
+    RegisterClassExW(&wprof);
+
+    g_hProfileMenuWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"HazeProfileMenuClass", L"",
+        WS_POPUP,
+        0, 0, PROFILE_MENU_WIDTH, CalculateProfileMenuHeight(),
+        nullptr, nullptr, hInstance, nullptr);
+
+    if (g_hProfileMenuWnd) {
+        DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(g_hProfileMenuWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    }
+
     // Register Search Engine Dropdown Class
     WNDCLASSEXW wedc{ sizeof(WNDCLASSEXW) };
     wedc.style = CS_HREDRAW | CS_VREDRAW;
@@ -3210,6 +3938,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     weng.hCursor = LoadCursor(nullptr, IDC_ARROW);
     weng.lpszClassName = L"HazeEngineBtnClass";
     RegisterClassExW(&weng);
+
+    // Register Profile Button Class
+    WNDCLASSEXW wprbtn{ sizeof(WNDCLASSEXW) };
+    wprbtn.style = CS_HREDRAW | CS_VREDRAW;
+    wprbtn.lpfnWndProc = ProfileButtonProc;
+    wprbtn.hInstance = hInstance;
+    wprbtn.hCursor = LoadCursor(nullptr, IDC_HAND);
+    wprbtn.lpszClassName = L"HazeProfileBtnClass";
+    RegisterClassExW(&wprbtn);
 
     // Register Settings Dropdown Button Class
     WNDCLASSEXW wset{ sizeof(WNDCLASSEXW) };
