@@ -474,20 +474,20 @@ LRESULT CALLBACK SettingsButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam,
         }
 
         // Draw chevron down icon matching the uploaded image: ∨
-        Pen chevronPen(Color(255, 60, 58, 54), 2.4f);
+        Pen chevronPen(Color(255, 60, 58, 54), 1.8f);
         chevronPen.SetStartCap(LineCapRound);
         chevronPen.SetEndCap(LineCapRound);
         chevronPen.SetLineJoin(LineJoinRound);
 
         REAL cx = (rc.left + rc.right) / 2.0f;
         REAL cy = (rc.top + rc.bottom) / 2.0f;
-        REAL sz = 5.2f;
+        REAL sz = 4.8f;
 
         // Symmetric rounded 'V' chevron
         PointF pts[] = {
-            PointF(cx - sz, cy - 2.5f),
-            PointF(cx, cy + 2.5f),
-            PointF(cx + sz, cy - 2.5f)
+            PointF(cx - sz, cy - 2.2f),
+            PointF(cx, cy + 2.2f),
+            PointF(cx + sz, cy - 2.2f)
         };
         g.DrawLines(&chevronPen, pts, 3);
 
@@ -687,8 +687,8 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             g.FillEllipse(&hoverBrush, (REAL)rc.left + 2.0f, (REAL)rc.top + 2.0f, (REAL)(rc.right - rc.left - 4.0f), (REAL)(rc.bottom - rc.top - 4.0f));
         }
 
-        Color iconCol = enabled ? Color(255, 38, 37, 29) : Color(255, 185, 182, 160);
-        Pen navPen(iconCol, 2.4f);
+        Color iconCol = enabled ? Color(255, 60, 58, 54) : Color(255, 185, 182, 160);
+        Pen navPen(iconCol, 1.8f);
         navPen.SetStartCap(LineCapRound);
         navPen.SetEndCap(LineCapRound);
         navPen.SetLineJoin(LineJoinRound);
@@ -699,7 +699,7 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         if (id == IDC_BTN_BACK) {
             // Modern rounded back arrow matching reference image: ←
             REAL shaftLen = 6.5f;
-            REAL wing = 5.2f;
+            REAL wing = 5.0f;
             // Central horizontal stem
             g.DrawLine(&navPen, cx - shaftLen, cy, cx + shaftLen, cy);
             // Upper and lower diagonal wings
@@ -709,7 +709,7 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         else if (id == IDC_BTN_FORWARD) {
             // Modern rounded forward arrow matching reference image: →
             REAL shaftLen = 6.5f;
-            REAL wing = 5.2f;
+            REAL wing = 5.0f;
             // Central horizontal stem
             g.DrawLine(&navPen, cx - shaftLen, cy, cx + shaftLen, cy);
             // Upper and lower diagonal wings
@@ -718,15 +718,14 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         }
         else if (id == IDC_BTN_RELOAD) {
             // Modern rounded circular arrow matching reference image: ↻
-            // Circular arc spanning ~285 degrees
-            REAL radius = 6.5f;
+            REAL radius = 6.0f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
             g.DrawArc(&navPen, arcRect, -30.0f, 290.0f);
 
             // Arrow head at arc termination (~260 degrees / upper right)
             REAL tipX = cx + radius * 0.94f;
             REAL tipY = cy - radius * 0.35f;
-            REAL wing = 4.6f;
+            REAL wing = 4.2f;
 
             // Inward-pointing arrowhead wings
             g.DrawLine(&navPen, tipX, tipY, tipX - wing, tipY - 0.5f);
@@ -1546,8 +1545,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             delete pFontFamily;
             pFontFamily = new FontFamily(L"Segoe UI");
         }
-        Gdiplus::Font tabFont(pFontFamily, 10.5f, FontStyleRegular, UnitPoint);
-        Gdiplus::Font tabBoldFont(pFontFamily, 10.5f, FontStyleBold, UnitPoint);
+        Gdiplus::Font tabFont(pFontFamily, 10.0f, FontStyleRegular, UnitPoint);
 
         StringFormat strFormat;
         strFormat.SetAlignment(StringAlignmentNear);
@@ -1647,10 +1645,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 DrawIconEx(hdc, tabRc.left + 16, tabRc.top + ((tabRc.bottom - tabRc.top - 20) / 2), g_hAppIcon, 20, 20, 0, nullptr, DI_NORMAL);
             }
 
-            Color textCol(255, 38, 37, 29);
+            Color textCol(255, 45, 45, 42);
             SolidBrush textBrush(textCol);
             RectF titleRect((REAL)tabRc.left + 46.0f, (REAL)tabRc.top, (REAL)(tabRc.right - tabRc.left - 80.0f), (REAL)(tabRc.bottom - tabRc.top));
-            g.DrawString(g_tabs[i]->title.c_str(), -1, &tabBoldFont, titleRect, &strFormat, &textBrush);
+            g.DrawString(g_tabs[i]->title.c_str(), -1, &tabFont, titleRect, &strFormat, &textBrush);
 
             RECT closeRc = GetTabCloseRect(tabRc);
             bool isCloseHover = (i == g_hoveredCloseTabIndex);
@@ -1676,18 +1674,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SolidBrush ntBrush(Color(255, 222, 216, 175));
             g.FillEllipse(&ntBrush, (REAL)newTabRc.left, (REAL)newTabRc.top, (REAL)(newTabRc.right - newTabRc.left), (REAL)(newTabRc.bottom - newTabRc.top));
         }
-        Pen plusPen(Color(255, 94, 91, 65), 1.8f);
+        Pen plusPen(Color(255, 60, 58, 54), 1.5f);
         plusPen.SetStartCap(LineCapRound);
         plusPen.SetEndCap(LineCapRound);
         REAL ntcx = (newTabRc.left + newTabRc.right) / 2.0f;
         REAL ntcy = (newTabRc.top + newTabRc.bottom) / 2.0f;
-        g.DrawLine(&plusPen, ntcx - 5.5f, ntcy, ntcx + 5.5f, ntcy);
-        g.DrawLine(&plusPen, ntcx, ntcy - 5.5f, ntcx, ntcy + 5.5f);
+        g.DrawLine(&plusPen, ntcx - 5.0f, ntcy, ntcx + 5.0f, ntcy);
+        g.DrawLine(&plusPen, ntcx, ntcy - 5.0f, ntcx, ntcy + 5.0f);
 
         // 4. Draw Pill-Shaped Rounded Search Bar with Olive border (#76701B / RGB(118, 112, 27))
         RECT searchRc = GetSearchBarOuterRect(width);
         Color borderColor = g_isEditFocused ? Color(255, 95, 90, 15) : Color(255, 118, 112, 27);
-        Pen borderPen(borderColor, 2.0f);
+        Pen borderPen(borderColor, 1.6f);
 
         REAL sx = (REAL)searchRc.left;
         REAL sy = (REAL)searchRc.top;
