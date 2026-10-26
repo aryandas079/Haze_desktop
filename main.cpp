@@ -453,8 +453,8 @@ void ResizeControls(int width, int height) {
     int editW = sb.right - editX - 16;
     if (editW < 50) editW = 50;
 
-    int editH = 24;
-    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2);
+    int editH = 26;
+    int editY = sb.top + ((SEARCH_BAR_HEIGHT - editH) / 2) + 1;
 
     if (g_hEdit) {
         SetWindowPos(g_hEdit, nullptr, editX, editY, editW, editH, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -498,7 +498,35 @@ LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             NavigateToInput(buffer);
             return 0;
         }
+        else if (wParam == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            // Full control: Ctrl+A Select All
+            SendMessage(hWnd, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        else if (wParam == VK_ESCAPE) {
+            // Restore current page URL or clear on Escape
+            if (g_activeTabIndex >= 0 && g_activeTabIndex < (int)g_tabs.size()) {
+                SetWindowTextW(hWnd, g_tabs[g_activeTabIndex]->url.c_str());
+                SendMessage(hWnd, EM_SETSEL, 0, -1);
+            }
+            return 0;
+        }
         break;
+    case WM_CHAR:
+        // Prevent beep on Ctrl+A
+        if (wParam == 1) { // ASCII SOH / Ctrl+A
+            return 0;
+        }
+        break;
+    case WM_LBUTTONDOWN: {
+        // If not focused, select entire text on first click
+        if (GetFocus() != hWnd) {
+            CallWindowProc(g_originalEditProc, hWnd, uMsg, wParam, lParam);
+            SendMessage(hWnd, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        break;
+    }
     case WM_SETFOCUS:
         g_isEditFocused = true;
         if (g_hWnd) {
@@ -803,18 +831,16 @@ LRESULT CALLBACK NavButtonSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
             // Modern rounded circular arrow matching standard browser reload icon: ↻
             REAL radius = 6.0f;
             RectF arcRect(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-            // Draw smooth 290 degree clockwise arc starting from top-right (35 deg)
-            g.DrawArc(&navPen, arcRect, 35.0f, 290.0f);
+            // Draw smooth 280 degree clockwise arc starting from top-right (30 deg)
+            g.DrawArc(&navPen, arcRect, 30.0f, 280.0f);
 
-            // Arc ends at 325 degrees (approx cx + 4.9f, cy - 3.4f)
-            // Clockwise arrowhead pointing inward/downwards
-            REAL tipX = cx + 4.9f;
-            REAL tipY = cy - 3.4f;
+            // Arc ends at 310 degrees (approx cx + 3.86f, cy - 4.60f)
+            REAL tipX = cx + 3.86f;
+            REAL tipY = cy - 4.60f;
 
-            GraphicsPath arrowHead;
-            arrowHead.AddLine(tipX - 1.0f, tipY - 5.0f, tipX + 0.5f, tipY + 0.5f);
-            arrowHead.AddLine(tipX + 0.5f, tipY + 0.5f, tipX + 5.5f, tipY + 0.5f);
-            g.DrawPath(&navPen, &arrowHead);
+            // Two symmetrical arrowhead wings pointing in tangent direction with circular endcaps
+            g.DrawLine(&navPen, tipX, tipY, tipX + 0.5f, tipY - 4.5f);
+            g.DrawLine(&navPen, tipX, tipY, tipX + 4.5f, tipY + 0.5f);
         }
 
         EndPaint(hWnd, &ps);
