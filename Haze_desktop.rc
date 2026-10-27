@@ -1,3 +1,0 @@
-#include "resource.h"
-
-IDI_HAZE_ICON ICON "app.ico"
