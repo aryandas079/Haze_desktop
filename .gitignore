@@ -5,7 +5,7 @@
 *.userosscache
 *.sln.docstates
 
-# Build outputs
+# Build outputs and binaries
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -29,6 +29,13 @@ bld/
 *.dll
 *.lib
 
+# Chromium build tree and out directories (Never commit source checkouts or builds)
+out/
+build/
+*.pak
+*.dat
+*.bin
+
 # NuGet packages restored locally
 packages/
 *.nupkg
@@ -39,3 +46,5 @@ Microsoft.Windows.ImplementationLibrary.*/
 *.log
 *.tmp
 *.aps
+*.cache
+patches_temp.patch
