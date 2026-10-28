@@ -48,3 +48,7 @@ Microsoft.Windows.ImplementationLibrary.*/
 *.aps
 *.cache
 patches_temp.patch
+
+# Chromium locale pak files (runtime build output)
+locales/
+*.pak.info
