@@ -1,0 +1,142 @@
+diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
+index 91571ae7850cd..b0dd78ef772b4 100644
+--- a/chrome/browser/ui/color/chrome_color_mixer.cc
++++ b/chrome/browser/ui/color/chrome_color_mixer.cc
+@@ -126,10 +126,12 @@ void ApplyGM3OmniboxBackgroundColor(ui::ColorMixer& mixer,
+                                     const ui::ColorProviderKey& key) {
+   // Apply omnibox background color updates only to non-themed clients.
+   if (!key.custom_theme) {
+-    mixer[kColorLocationBarBackground] = {ui::kColorSysOmniboxContainer};
+-    mixer[kColorLocationBarBackgroundHovered] =
+-        ui::GetResultingPaintColor(ui::kColorSysStateHoverBrightBlendProtection,
+-                                   kColorLocationBarBackground);
++    const bool dark_mode =
++        key.color_mode == ui::ColorProviderKey::ColorMode::kDark;
++    mixer[kColorLocationBarBackground] = {
++        dark_mode ? SkColorSetRGB(0x2B, 0x30, 0x36) : SK_ColorWHITE};
++    mixer[kColorLocationBarBackgroundHovered] = {
++        dark_mode ? SkColorSetRGB(0x32, 0x38, 0x40) : SK_ColorWHITE};
+ 
+     // Update colors to account for "mismatched input/URL" in the omnibox.
+     mixer[kColorLocationBarBorderOnMismatch] = {ui::kColorSysNeutralOutline};
+@@ -802,8 +804,12 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+       ui::GetColorWithMaxContrast(kColorThumbnailTabBackground);
+   mixer[kColorThumbnailTabStripBackgroundActive] = {ui::kColorFrameActive};
+   mixer[kColorThumbnailTabStripBackgroundInactive] = {ui::kColorFrameInactive};
+-  mixer[kColorToolbar] = {dark_mode ? SkColorSetRGB(0x35, 0x36, 0x3A)
+-                                    : SK_ColorWHITE};
++  mixer[ui::kColorFrameActive] = {dark_mode ? SkColorSetRGB(0x20, 0x24, 0x28)
++                                           : SkColorSetRGB(0xDA, 0xE3, 0xE8)};
++  mixer[ui::kColorFrameInactive] = {dark_mode ? SkColorSetRGB(0x1B, 0x1E, 0x22)
++                                             : SkColorSetRGB(0xE2, 0xEA, 0xEE)};
++  mixer[kColorToolbar] = {dark_mode ? SkColorSetRGB(0x20, 0x24, 0x28)
++                                    : SkColorSetRGB(0xDA, 0xE3, 0xE8)};
+   mixer[kColorToolbarContextualTasksButtonShadow] = {
+       ui::SetAlpha(ui::kColorShadowBase, 0x255 * 17 / 100)};
+   mixer[kColorToolbarButtonBackgroundHighlightedDefault] =
+@@ -880,9 +886,12 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+       ui::SetAlpha(kColorNewTabPageBackground, SK_AlphaOPAQUE);
+   mixer[kColorWebContentsBackgroundLetterboxing] =
+       ui::AlphaBlend(kColorWebContentsBackground, SK_ColorBLACK, 0x33);
+-  mixer[kColorWindowControlButtonBackgroundActive] = {ui::kColorFrameActive};
++  mixer[kColorWindowControlButtonBackgroundActive] = {
++      dark_mode ? SkColorSetRGB(0x20, 0x24, 0x28)
++                : SkColorSetRGB(0xDA, 0xE3, 0xE8)};
+   mixer[kColorWindowControlButtonBackgroundInactive] = {
+-      ui::kColorFrameInactive};
++      dark_mode ? SkColorSetRGB(0x1B, 0x1E, 0x22)
++                : SkColorSetRGB(0xE2, 0xEA, 0xEE)};
+ 
+   mixer[kColorReadAnythingBackground] = {
+       dark_mode ? kColorReadAnythingBackgroundDark
+diff --git a/chrome/browser/ui/views/frame/browser_frame_view_win.cc b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
+index 5b7aa7203114f..935450d4ce67d 100644
+--- a/chrome/browser/ui/views/frame/browser_frame_view_win.cc
++++ b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
+@@ -166,10 +166,7 @@ bool BrowserFrameViewWin::CaptionButtonsOnLeadingEdge() const {
+ }
+ 
+ int BrowserFrameViewWin::GetTopInset(bool restored) const {
+-  if (GetBrowserView()->GetTabStripVisible()) {
+-    return TopAreaHeight(restored);
+-  }
+-  return TitlebarHeight(restored);
++  return TopAreaHeight(restored);
+ }
+ 
+ SkColor BrowserFrameViewWin::GetCaptionColor(
+@@ -570,6 +567,9 @@ int BrowserFrameViewWin::GetFrameHeight() const {
+     return info.tabstrip_preferred_height - WindowTopY() -
+            GetLayoutConstant(LayoutConstant::kTabstripToolbarOverlap);
+   }
++  if (info.toolbar_preferred_height) {
++    return info.toolbar_preferred_height;
++  }
+   return IsMaximized() ? TitlebarMaximizedVisualHeight()
+                        : TitlebarHeight(false);
+ }
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index a30cb908ae6e7..aec7820880f2f 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -1423,35 +1423,7 @@ bool BrowserView::ShouldDrawTabStrokes() const {
+ }
+ 
+ bool BrowserView::ShouldDrawTabStrip() const {
+-  // Return false if this window does not normally display a tabstrip or if the
+-  // tabstrip is currently hidden, e.g. because we're in fullscreen.
+-  if (!WindowFeatureController::From(browser_)->SupportsWindowFeature(
+-          WindowFeatureController::WindowFeature::kFeatureTabStrip)) {
+-    return false;
+-  }
+-
+-  // Return false if the tabstrip has not yet been created (by InitViews()),
+-  // since callers may otherwise try to access it.
+-  // Under the TabStripUnification feature, we only initialize the tab strip
+-  // region view that is active (horizontal or vertical). When the feature is
+-  // disabled, the horizontal tab strip is created unconditionally.
+-  if (base::FeatureList::IsEnabled(tabs::kTabStripUnification)) {
+-    const auto* controller =
+-        tabs::VerticalTabStripStateController::From(browser_);
+-    const bool displays_vertical_tabs =
+-        controller && controller->ShouldDisplayVerticalTabs() &&
+-        browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL;
+-
+-    if (displays_vertical_tabs) {
+-      return vertical_tab_strip_region_view_ &&
+-             vertical_tab_strip_region_view_->GetTabStripView() != nullptr;
+-    }
+-
+-    return horizontal_tab_strip_region_view_ &&
+-           horizontal_tab_strip_region_view_->GetTabStripView() != nullptr;
+-  }
+-
+-  return horizontal_tab_strip_region_view_->GetTabStripView() != nullptr;
++  return false;
+ }
+ 
+ bool BrowserView::ShouldDrawVerticalTabStrip() const {
+@@ -3976,7 +3948,7 @@ ui::ImageModel BrowserView::GetWindowIcon() {
+         WindowMetadataController::From(browser_.get())->GetCurrentPageIcon());
+   }
+ 
+-  return ui::ImageModel();
++  return ui::ImageModel::FromResourceId(IDR_PRODUCT_LOGO_32);
+ }
+ 
+ bool BrowserView::ExecuteWindowsCommand(int command_id) {
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 4c5c285eac75c..c5c2aa4d7ce82 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -611,9 +611,7 @@ void ToolbarView::Init() {
+ 
+   if (!features::IsWebUIAvatarButtonEnabled()) {
+     avatar_ = AddChildView(std::make_unique<AvatarToolbarButton>(browser_));
+-    bool show_avatar_toolbar_button =
+-        AvatarToolbarButtonInterface::CanShowForProfile(browser_->GetProfile());
+-    avatar_->SetVisible(show_avatar_toolbar_button);
++    avatar_->SetVisible(true);
+   }
+ 
+   // Only manage the overflow button when there are at least some views
