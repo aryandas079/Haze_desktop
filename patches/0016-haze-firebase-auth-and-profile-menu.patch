@@ -1,4 +1,4 @@
-diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
+﻿diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
 index 91571ae7850cd..83e39d802e103 100644
 --- a/chrome/browser/ui/color/chrome_color_mixer.cc
 +++ b/chrome/browser/ui/color/chrome_color_mixer.cc
@@ -100,18 +100,19 @@ index 1e98a3d7cba4e..edbbe417a5a00 100644
    if (source_browser) {
      params->initiating_profile = source_browser->GetProfile();
 diff --git a/chrome/browser/ui/views/profiles/avatar_toolbar_button.cc b/chrome/browser/ui/views/profiles/avatar_toolbar_button.cc
-index 1b708864279a8..723a43184ed15 100644
+index 1b708864279a8..e1f26d257f669 100644
 --- a/chrome/browser/ui/views/profiles/avatar_toolbar_button.cc
 +++ b/chrome/browser/ui/views/profiles/avatar_toolbar_button.cc
-@@ -21,6 +21,7 @@
+@@ -21,6 +21,8 @@
  #include "chrome/browser/ui/ui_features.h"
  #include "chrome/browser/ui/view_ids.h"
  #include "chrome/browser/ui/views/profiles/avatar_toolbar_button_state_manager.h"
 +#include "chrome/browser/ui/views/profiles/haze_account_manager.h"
++#include "chrome/browser/ui/views/profiles/profile_menu_coordinator.h"
  #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
  #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
  #include "components/user_education/common/user_education_class_properties.h"
-@@ -100,56 +101,18 @@ AvatarToolbarButton::AvatarToolbarButton(BrowserWindowInterface* browser)
+@@ -100,56 +102,18 @@ AvatarToolbarButton::AvatarToolbarButton(BrowserWindowInterface* browser)
  AvatarToolbarButton::~AvatarToolbarButton() = default;
  
  void AvatarToolbarButton::UpdateIcon() {
@@ -174,6 +175,23 @@ index 1b708864279a8..723a43184ed15 100644
  
    // Update the layout insets as the new icon might have caused them to change
    // size (e.g. in the case of an avatar ring addition/removal).
+@@ -447,6 +411,16 @@ void AvatarToolbarButton::OnThemeChanged() {
+ }
+ 
+ void AvatarToolbarButton::ButtonPressed(bool is_source_accelerator) {
++  if (BrowserWindowInterface* browser = state_manager_.browser()) {
++    if (auto* coordinator = ProfileMenuCoordinator::From(browser)) {
++      if (coordinator->IsShowing()) {
++        coordinator->Dismiss();
++        return;
++      }
++      coordinator->Show(is_source_accelerator);
++      return;
++    }
++  }
+   state_manager_.HandleButtonPressed(is_source_accelerator);
+ }
+ 
 diff --git a/chrome/browser/ui/views/profiles/haze_account_manager.h b/chrome/browser/ui/views/profiles/haze_account_manager.h
 new file mode 100644
 index 0000000000000..1a1aeaa5a8a4f
@@ -419,10 +437,10 @@ index 0000000000000..1a1aeaa5a8a4f
 +#endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_HAZE_ACCOUNT_MANAGER_H_
 diff --git a/chrome/browser/ui/views/profiles/haze_avatar_icons.h b/chrome/browser/ui/views/profiles/haze_avatar_icons.h
 new file mode 100644
-index 0000000000000..2e32279506e7f
+index 0000000000000..84b3dad903ee2
 --- /dev/null
 +++ b/chrome/browser/ui/views/profiles/haze_avatar_icons.h
-@@ -0,0 +1,758 @@
+@@ -0,0 +1,757 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -1161,17 +1179,16 @@ index 0000000000000..2e32279506e7f
 +};
 +
 +inline gfx::Image CreateHazeAvatarImage(int target_size = 64) {
-+  SkBitmap bitmap_64 = gfx::PNGCodec::Decode(kHazeAvatar64Png);
-+  SkBitmap bitmap_32 = gfx::PNGCodec::Decode(kHazeAvatar32Png);
-+
-+  gfx::ImageSkia image_skia;
-+  if (!bitmap_64.isNull()) {
-+    image_skia.AddRepresentation(gfx::ImageSkiaRep(bitmap_64, 1.0f));
++  SkBitmap bitmap;
++  if (target_size <= 32) {
++    bitmap = gfx::PNGCodec::Decode(kHazeAvatar32Png);
++  } else {
++    bitmap = gfx::PNGCodec::Decode(kHazeAvatar64Png);
 +  }
-+  if (!bitmap_32.isNull()) {
-+    image_skia.AddRepresentation(gfx::ImageSkiaRep(bitmap_32, 2.0f));
++  if (bitmap.isNull()) {
++    bitmap = gfx::PNGCodec::Decode(kHazeAvatar64Png);
 +  }
-+  return gfx::Image(image_skia);
++  return gfx::Image::CreateFrom1xBitmap(bitmap);
 +}
 +
 +inline ui::ImageModel CreateHazeAvatarImageModel(int target_size = 64) {
@@ -1181,6 +1198,105 @@ index 0000000000000..2e32279506e7f
 +}  // namespace haze
 +
 +#endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_HAZE_AVATAR_ICONS_H_
+diff --git a/chrome/browser/ui/views/profiles/profile_menu_coordinator.cc b/chrome/browser/ui/views/profiles/profile_menu_coordinator.cc
+index 913e028f5bcff..e0c1b41a92425 100644
+--- a/chrome/browser/ui/views/profiles/profile_menu_coordinator.cc
++++ b/chrome/browser/ui/views/profiles/profile_menu_coordinator.cc
+@@ -14,10 +14,13 @@
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+ #include "chrome/browser/ui/interaction/browser_elements.h"
+ #include "chrome/browser/ui/user_education/browser_user_education_interface.h"
++#include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
+ #include "chrome/browser/ui/views/profiles/incognito_menu_view.h"
+ #include "chrome/browser/ui/views/profiles/isolated_mode_menu_view.h"
+ #include "chrome/browser/ui/views/profiles/profile_menu_view_base.h"
+ #include "chrome/browser/ui/views/toolbar/avatar_toolbar_button_interface.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "components/feature_engagement/public/feature_constants.h"
+ #include "ui/views/bubble/bubble_anchor.h"
+ #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+@@ -31,14 +34,22 @@
+ ProfileMenuCoordinator::~ProfileMenuCoordinator() {
+   // Ensure the ProfileMenuCoordinator does not outlive its associated bubble
+   // widget to mitigate the risk of dangling references.
+-  if (bubble_tracker_ && bubble_tracker_.view()->GetWidget()) {
++  if (bubble_tracker_ && bubble_tracker_.view() &&
++      bubble_tracker_.view()->GetWidget()) {
+     bubble_tracker_.view()->GetWidget()->CloseNow();
+   }
+ }
+ 
++void ProfileMenuCoordinator::Dismiss() {
++  if (bubble_tracker_ && bubble_tracker_.view() &&
++      bubble_tracker_.view()->GetWidget()) {
++    bubble_tracker_.view()->GetWidget()->CloseWithReason(
++        views::Widget::ClosedReason::kUnspecified);
++  }
++}
++
+ void ProfileMenuCoordinator::Show(bool is_source_accelerator,
+                                   bool from_avatar_promo) {
+-  // TODO(crbug.com/425953501): Update this code.
+   auto avatar_toolbar_button = GetAvatarToolbarButton();
+ 
+   // Do not show avatar bubble if there is no avatar menu button or if the
+@@ -48,18 +59,8 @@ void ProfileMenuCoordinator::Show(bool is_source_accelerator,
+   }
+ 
+ #if BUILDFLAG(ENABLE_DICE_SUPPORT)
+-  // Batch upload promos in the profile menu identity header are only shown
+-  // if the user opened the menu via the avatar promo pill. Outside of pill
+-  // expansions, batch upload promos are suppressed so they don't overshadow
+-  // other promos (such as History Sync), while still fetching local data count
+-  // to show the batch upload row item in the menu.
+-  const bool allow_batch_upload_promos = from_avatar_promo;
+-  signin::ComputeProfileMenuAvatarButtonPromoInfo(
+-      *GetProfile(),
+-      base::BindOnce(&ProfileMenuCoordinator::ShowWithPromoResults,
+-                     weak_pointer_factory_.GetWeakPtr(), is_source_accelerator,
+-                     from_avatar_promo),
+-      allow_batch_upload_promos);
++  ShowWithPromoResults(is_source_accelerator, from_avatar_promo,
++                       signin::ProfileMenuAvatarButtonPromoInfo{});
+ #else
+   ShowWithPromoResults(is_source_accelerator, from_avatar_promo);
+ #endif
+@@ -147,7 +148,19 @@ Profile* ProfileMenuCoordinator::GetProfile() {
+ }
+ 
+ views::BubbleAnchor ProfileMenuCoordinator::GetAvatarToolbarButton() {
+-  return AvatarToolbarButtonInterface::GetBubbleAnchor(*GetBrowser());
++  auto anchor = AvatarToolbarButtonInterface::GetBubbleAnchor(*GetBrowser());
++  if (!anchor.IsNull()) {
++    return anchor;
++  }
++  if (auto* browser_view =
++          BrowserView::GetBrowserViewForBrowser(&browser_.get())) {
++    if (auto* toolbar = browser_view->toolbar()) {
++      if (auto* avatar = toolbar->avatar_toolbar_button()) {
++        return views::BubbleAnchor(avatar);
++      }
++    }
++  }
++  return anchor;
+ }
+ 
+ DEFINE_USER_DATA(ProfileMenuCoordinator);
+diff --git a/chrome/browser/ui/views/profiles/profile_menu_coordinator.h b/chrome/browser/ui/views/profiles/profile_menu_coordinator.h
+index 8a629bea19609..7ef04c8e1b9b9 100644
+--- a/chrome/browser/ui/views/profiles/profile_menu_coordinator.h
++++ b/chrome/browser/ui/views/profiles/profile_menu_coordinator.h
+@@ -42,6 +42,9 @@ class ProfileMenuCoordinator {
+   // promo that was shown on the AvatarButton.
+   void Show(bool is_source_accelerator, bool from_avatar_promo = false);
+ 
++  // Dismisses the profile bubble if currently open.
++  void Dismiss();
++
+   // Returns true if the bubble is currently showing for the owning browser.
+   bool IsShowing() const;
+ 
 diff --git a/chrome/browser/ui/views/profiles/profile_menu_view.cc b/chrome/browser/ui/views/profiles/profile_menu_view.cc
 index 2dbce542556bf..f7361488dcb77 100644
 --- a/chrome/browser/ui/views/profiles/profile_menu_view.cc
@@ -1447,3 +1563,41 @@ index 98a488dd7d697..3d08816209bfa 100644
  
    const raw_ref<Profile> profile_;
  
+diff --git a/chrome/browser/ui/views/toolbar/avatar_toolbar_button_interface.cc b/chrome/browser/ui/views/toolbar/avatar_toolbar_button_interface.cc
+index 66377eb60e267..a16a8492c6ba3 100644
+--- a/chrome/browser/ui/views/toolbar/avatar_toolbar_button_interface.cc
++++ b/chrome/browser/ui/views/toolbar/avatar_toolbar_button_interface.cc
+@@ -8,7 +8,10 @@
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/ui/browser_element_identifiers.h"
+ #include "chrome/browser/ui/interaction/browser_elements.h"
++#include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
+ #include "chrome/browser/ui/views/profiles/avatar_toolbar_button_state_manager.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ 
+ // static
+ bool AvatarToolbarButtonInterface::CanShowForProfile(Profile* profile) {
+@@ -30,8 +33,20 @@ bool AvatarToolbarButtonInterface::CanShowForProfile(Profile* profile) {
+ // static
+ views::BubbleAnchor AvatarToolbarButtonInterface::GetBubbleAnchor(
+     BrowserWindowInterface& browser) {
+-  return views::BubbleAnchor(BrowserElements::From(&browser)->GetElement(
+-      kToolbarAvatarButtonElementId));
++  if (auto* browser_elements = BrowserElements::From(&browser)) {
++    if (auto* element =
++            browser_elements->GetElement(kToolbarAvatarButtonElementId)) {
++      return views::BubbleAnchor(element);
++    }
++  }
++  if (auto* browser_view = BrowserView::GetBrowserViewForBrowser(&browser)) {
++    if (auto* toolbar = browser_view->toolbar()) {
++      if (auto* avatar = toolbar->avatar_toolbar_button()) {
++        return views::BubbleAnchor(avatar);
++      }
++    }
++  }
++  return views::BubbleAnchor();
+ }
+ 
+ // static
