@@ -1,59 +1,97 @@
-﻿diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
-index a30cb908ae6e7..3d9f87f47ef92 100644
+diff --git a/chrome/browser/ui/views/frame/browser_frame_view_win.cc b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
+index 5b7aa7203114f..935450d4ce67d 100644
+--- a/chrome/browser/ui/views/frame/browser_frame_view_win.cc
++++ b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
+@@ -166,10 +166,7 @@ bool BrowserFrameViewWin::CaptionButtonsOnLeadingEdge() const {
+ }
+ 
+ int BrowserFrameViewWin::GetTopInset(bool restored) const {
+-  if (GetBrowserView()->GetTabStripVisible()) {
+-    return TopAreaHeight(restored);
+-  }
+-  return TitlebarHeight(restored);
++  return TopAreaHeight(restored);
+ }
+ 
+ SkColor BrowserFrameViewWin::GetCaptionColor(
+@@ -570,6 +567,9 @@ int BrowserFrameViewWin::GetFrameHeight() const {
+     return info.tabstrip_preferred_height - WindowTopY() -
+            GetLayoutConstant(LayoutConstant::kTabstripToolbarOverlap);
+   }
++  if (info.toolbar_preferred_height) {
++    return info.toolbar_preferred_height;
++  }
+   return IsMaximized() ? TitlebarMaximizedVisualHeight()
+                        : TitlebarHeight(false);
+ }
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index a30cb908ae6e7..76beb9d6a20a3 100644
 --- a/chrome/browser/ui/views/frame/browser_view.cc
 +++ b/chrome/browser/ui/views/frame/browser_view.cc
-@@ -1423,44 +1423,100 @@ bool BrowserView::ShouldDrawTabStrokes() const {
- }
- 
- bool BrowserView::ShouldDrawTabStrip() const {
--  // Return false if this window does not normally display a tabstrip or if the
--  // tabstrip is currently hidden, e.g. because we're in fullscreen.
-+  if (haze_tab_mode_ == HazeTabMode::kNone) {
-+    return false;
-+  }
-   if (!WindowFeatureController::From(browser_)->SupportsWindowFeature(
-           WindowFeatureController::WindowFeature::kFeatureTabStrip)) {
-     return false;
-   }
--
--  // Return false if the tabstrip has not yet been created (by InitViews()),
--  // since callers may otherwise try to access it.
--  // Under the TabStripUnification feature, we only initialize the tab strip
--  // region view that is active (horizontal or vertical). When the feature is
--  // disabled, the horizontal tab strip is created unconditionally.
--  if (base::FeatureList::IsEnabled(tabs::kTabStripUnification)) {
--    const auto* controller =
--        tabs::VerticalTabStripStateController::From(browser_);
--    const bool displays_vertical_tabs =
--        controller && controller->ShouldDisplayVerticalTabs() &&
--        browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL;
--
--    if (displays_vertical_tabs) {
--      return vertical_tab_strip_region_view_ &&
--             vertical_tab_strip_region_view_->GetTabStripView() != nullptr;
--    }
--
--    return horizontal_tab_strip_region_view_ &&
--           horizontal_tab_strip_region_view_->GetTabStripView() != nullptr;
-+  if (haze_tab_mode_ == HazeTabMode::kVertical) {
-+    return vertical_tab_strip_region_view_ &&
-+           vertical_tab_strip_region_view_->GetTabStripView() != nullptr;
-   }
--
--  return horizontal_tab_strip_region_view_->GetTabStripView() != nullptr;
-+  return horizontal_tab_strip_region_view_ &&
-+         horizontal_tab_strip_region_view_->GetTabStripView() != nullptr;
- }
+@@ -1247,6 +1247,7 @@ ClientFrameElementInfo BrowserView::GetFrameElementInfo() const {
+   // So return what the tabstrip height _ought_ to be right now.
+   ClientFrameElementInfo info;
+   info.tabstrip_preferred_height =
++      (haze_tab_mode_ == HazeTabMode::kHorizontal) &&
+       ShouldDrawTabStrip() && !ShouldDrawVerticalTabStrip() &&
+               horizontal_tab_strip_region_view_ &&
+               horizontal_tab_strip_region_view_->GetTabStripView()
+@@ -1456,7 +1457,8 @@ bool BrowserView::ShouldDrawTabStrip() const {
  
  bool BrowserView::ShouldDrawVerticalTabStrip() const {
--  auto* controller = tabs::VerticalTabStripStateController::From(browser_);
+   auto* controller = tabs::VerticalTabStripStateController::From(browser_);
 -  return ShouldDrawTabStrip() && controller &&
--         controller->ShouldDisplayVerticalTabs() &&
-+  return haze_tab_mode_ == HazeTabMode::kVertical &&
-+         ShouldDrawTabStrip() &&
++  return (haze_tab_mode_ == HazeTabMode::kVertical) &&
++         ShouldDrawTabStrip() && controller &&
+          controller->ShouldDisplayVerticalTabs() &&
           browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL;
  }
+@@ -1467,6 +1469,9 @@ bool BrowserView::ShouldDrawWebAppFrameToolbar() const {
+ }
  
+ bool BrowserView::IsVerticalTabStripCollapsed() const {
++  if (haze_tab_mode_ != HazeTabMode::kVertical) {
++    return false;
++  }
+   if (auto* const controller =
+           tabs::VerticalTabStripStateController::From(browser_)) {
+     return controller->IsCollapsed();
+@@ -1612,6 +1617,52 @@ void BrowserView::OnVerticalTabStripModeChanged(
+   InvalidateLayout();
+ }
+ 
++void BrowserView::SetHazeTabMode(HazeTabMode mode) {
++  if (haze_tab_mode_ == mode) {
++    return;
++  }
++  haze_tab_mode_ = mode;
++
++  auto* const vts_controller =
++      tabs::VerticalTabStripStateController::From(browser_);
++
++  if (haze_tab_mode_ == HazeTabMode::kVertical) {
++    if (vts_controller && !vts_controller->ShouldDisplayVerticalTabs()) {
++      vts_controller->SetVerticalTabsEnabled(true);
++    }
++  } else {
++    if (vts_controller && vts_controller->ShouldDisplayVerticalTabs()) {
++      vts_controller->SetVerticalTabsEnabled(false);
++    }
++    if (haze_tab_mode_ == HazeTabMode::kHorizontal) {
++      if (horizontal_tab_strip_region_view_) {
++        horizontal_tab_strip_region_view_->InitializeTabStrip();
++      }
++    }
++  }
++
++  if (GetFrameView()) {
++    GetFrameView()->OnTabStripStateChanged();
++  }
++  UpdateTabSearchBubbleHost();
++  InvalidateLayout();
++  SchedulePaint();
++}
++
 +void BrowserView::CycleHazeTabMode() {
 +  switch (haze_tab_mode_) {
 +    case HazeTabMode::kNone:
@@ -68,129 +106,60 @@ index a30cb908ae6e7..3d9f87f47ef92 100644
 +  }
 +}
 +
-+void BrowserView::SetHazeTabMode(HazeTabMode mode) {
-+  if (haze_tab_mode_ == mode) {
-+    return;
-+  }
-+  haze_tab_mode_ = mode;
-+
-+  // Clear selection model
-+  if (auto* active_tab = browser_->GetTabStripModel()->GetActiveTab()) {
-+    tabs::TabStripModelSelectionState selection_state(
-+        browser_->GetTabStripModel());
-+    selection_state.SetActiveTab(active_tab);
-+    selection_state.SetAnchorTab(active_tab);
-+    selection_state.set_focused_group(
-+        browser_->GetTabStripModel()->GetFocusedGroup());
-+    browser_->GetTabStripModel()->SetSelectionFromModel(
-+        std::move(selection_state));
-+  }
-+
-+  auto* const controller =
-+      tabs::VerticalTabStripStateController::From(browser_);
-+
-+  if (haze_tab_mode_ == HazeTabMode::kNone) {
-+    if (controller) {
-+      controller->SetVerticalTabsEnabled(false);
-+    }
-+    if (horizontal_tab_strip_region_view_) {
-+      horizontal_tab_strip_region_view_->ResetTabStrip();
-+    }
-+    if (vertical_tab_strip_region_view_) {
-+      vertical_tab_strip_region_view_->ResetTabStrip();
-+    }
-+  } else if (haze_tab_mode_ == HazeTabMode::kHorizontal) {
-+    if (controller) {
-+      controller->SetVerticalTabsEnabled(false);
-+    }
-+    if (vertical_tab_strip_region_view_) {
-+      vertical_tab_strip_region_view_->ResetTabStrip();
-+    }
-+    if (horizontal_tab_strip_region_view_) {
-+      horizontal_tab_strip_region_view_->InitializeTabStrip();
-+    }
-+  } else if (haze_tab_mode_ == HazeTabMode::kVertical) {
-+    if (controller) {
-+      controller->SetVerticalTabsEnabled(true);
-+    }
-+    if (horizontal_tab_strip_region_view_) {
-+      horizontal_tab_strip_region_view_->ResetTabStrip();
-+    }
-+    if (vertical_tab_strip_region_view_) {
-+      vertical_tab_strip_region_view_->InitializeTabStrip();
-+    }
-+  }
-+
-+  GetFrameView()->OnTabStripStateChanged();
-+  UpdateTabSearchBubbleHost();
-+  InvalidateLayout();
-+  SchedulePaint();
-+}
-+
- bool BrowserView::ShouldDrawWebAppFrameToolbar() const {
-   return !IsUnframedModeEnabled() &&
-          GetFrameView()->ShouldShowWebAppFrameToolbar();
-@@ -3976,7 +4032,7 @@ ui::ImageModel BrowserView::GetWindowIcon() {
-         WindowMetadataController::From(browser_.get())->GetCurrentPageIcon());
-   }
- 
--  return ui::ImageModel();
-+  return ui::ImageModel::FromResourceId(IDR_PRODUCT_LOGO_32);
- }
- 
- bool BrowserView::ExecuteWindowsCommand(int command_id) {
-@@ -5151,12 +5207,14 @@ void BrowserView::AddedToWidget() {
-                             weak_ptr_factory_.GetWeakPtr()));
-   }
- 
--  if (auto* const vertical_tab_strip_state_controller =
--          tabs::VerticalTabStripStateController::From(browser_)) {
--    if (vertical_tab_strip_state_controller->ShouldDisplayVerticalTabs()) {
--      vertical_tab_strip_region_view_->InitializeTabStrip();
--    } else {
--      horizontal_tab_strip_region_view_->InitializeTabStrip();
-+  if (haze_tab_mode_ != HazeTabMode::kNone) {
-+    if (auto* const vertical_tab_strip_state_controller =
-+            tabs::VerticalTabStripStateController::From(browser_)) {
-+      if (vertical_tab_strip_state_controller->ShouldDisplayVerticalTabs()) {
-+        vertical_tab_strip_region_view_->InitializeTabStrip();
-+      } else {
-+        horizontal_tab_strip_region_view_->InitializeTabStrip();
-+      }
-     }
-   }
+ ///////////////////////////////////////////////////////////////////////////////
+ // BrowserView, BrowserWindow implementation:
  
 diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
-index 74c252e7393ce..ef94e30c9965f 100644
+index 74c252e7393ce..0fe5be1c39f4e 100644
 --- a/chrome/browser/ui/views/frame/browser_view.h
 +++ b/chrome/browser/ui/views/frame/browser_view.h
-@@ -340,6 +340,15 @@ class BrowserView : public BrowserWindow,
-   // Returns whether a vertical tabstrip should be shown.
-   bool ShouldDrawVerticalTabStrip() const;
+@@ -337,6 +337,16 @@ class BrowserView : public BrowserWindow,
+   // On macOS, it is possible that the top UI is drawn but hidden.
+   bool ShouldDrawTabStrip() const;
  
 +  enum class HazeTabMode {
 +    kNone = 0,
 +    kHorizontal = 1,
-+    kVertical = 2
++    kVertical = 2,
 +  };
-+  void CycleHazeTabMode();
-+  void SetHazeTabMode(HazeTabMode mode);
-+  HazeTabMode haze_tab_mode() const { return haze_tab_mode_; }
 +
-   // Returns whether the webapp frame toolbar should be drawn.
-   bool ShouldDrawWebAppFrameToolbar() const;
++  HazeTabMode haze_tab_mode() const { return haze_tab_mode_; }
++  void SetHazeTabMode(HazeTabMode mode);
++  void CycleHazeTabMode();
++
+   // Returns whether a vertical tabstrip should be shown.
+   bool ShouldDrawVerticalTabStrip() const;
  
-@@ -1243,6 +1252,8 @@ class BrowserView : public BrowserWindow,
-   raw_ptr<ScrimView> window_scrim_view_ = nullptr;
-   raw_ptr<ScrimView> side_panel_content_transition_scrim_view_ = nullptr;
+@@ -1372,6 +1382,8 @@ class BrowserView : public BrowserWindow,
+   // True if the browser window has been shown at least once.
+   bool window_has_shown_ = false;
  
 +  HazeTabMode haze_tab_mode_ = HazeTabMode::kNone;
 +
-   // Anchor point for help bubbles and other dialogs that want to reliably
-   // anchor outside the content area of the window.
-   std::unique_ptr<views::ViewSubregionAnchor> dialog_anchor_;
+ #if BUILDFLAG(IS_WIN)
+   class PipExclusionObserverImpl;
+   std::unique_ptr<PipExclusionObserverImpl> pip_exclusion_observer_;
+diff --git a/chrome/browser/ui/views/frame/layout/browser_view_layout_delegate_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_layout_delegate_impl.cc
+index 162cb0487882a..38dda7c118560 100644
+--- a/chrome/browser/ui/views/frame/layout/browser_view_layout_delegate_impl.cc
++++ b/chrome/browser/ui/views/frame/layout/browser_view_layout_delegate_impl.cc
+@@ -58,6 +58,14 @@ BrowserViewLayoutDelegateImpl::GetTabStripType() const {
+     return TabStripType::kNone;
+   }
+ 
++  if (browser_view_->haze_tab_mode() == BrowserView::HazeTabMode::kNone) {
++    return TabStripType::kNone;
++  }
++
++  if (browser_view_->haze_tab_mode() == BrowserView::HazeTabMode::kVertical) {
++    return TabStripType::kVertical;
++  }
++
+   // Determine if there is a vertical tab strip.
+   if (browser_view_->browser()->GetType() ==
+       BrowserWindowInterface::Type::TYPE_NORMAL) {
 diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
-index 4c5c285eac75c..bd0fb5e533e25 100644
+index 4c5c285eac75c..ac34179f1a9c1 100644
 --- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
 +++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
 @@ -137,6 +137,7 @@
@@ -201,36 +170,35 @@ index 4c5c285eac75c..bd0fb5e533e25 100644
  #include "content/public/browser/render_view_host.h"
  #include "content/public/browser/web_contents.h"
  #include "third_party/skia/include/core/SkPath.h"
-@@ -458,6 +459,13 @@ void ToolbarView::Init() {
-         InitialWebUIWindowMetricsManager::From(browser_)));
+@@ -468,6 +469,13 @@ void ToolbarView::Init() {
+         AddChildView(std::make_unique<SplitTabsToolbarButton>(browser_));
    }
  
 +  auto haze_tab_button = std::make_unique<ToolbarButton>(base::BindRepeating(
 +      &BrowserView::CycleHazeTabMode, base::Unretained(browser_view_)));
 +  haze_tab_button->SetVectorIcon(vector_icons::kKeyboardArrowDownIcon);
-+  haze_tab_button->SetTooltipText(u"Toggle Tabs (Horizontal / Vertical)");
++  haze_tab_button->SetTooltipText(u"Toggle Tabs (Disabled / Horizontal / Vertical)");
 +  haze_tab_button->GetViewAccessibility().SetName(u"Toggle Tabs");
 +  haze_tab_toggle_button_ = AddChildView(std::move(haze_tab_button));
 +
-   if (!features::IsWebUIHomeButtonEnabled()) {
-     home_ = AddChildView(std::make_unique<HomeButton>(
-         browser_, base::BindRepeating(callback, browser_, IDC_HOME)));
-@@ -611,9 +619,7 @@ void ToolbarView::Init() {
- 
-   if (!features::IsWebUIAvatarButtonEnabled()) {
-     avatar_ = AddChildView(std::make_unique<AvatarToolbarButton>(browser_));
--    bool show_avatar_toolbar_button =
--        AvatarToolbarButtonInterface::CanShowForProfile(browser_->GetProfile());
--    avatar_->SetVisible(show_avatar_toolbar_button);
-+    avatar_->SetVisible(true);
-   }
- 
-   // Only manage the overflow button when there are at least some views
+   if (contextual_tasks::IsContextualTasksUIEnabled() &&
+       contextual_tasks::kShowEntryPoint.Get() ==
+           contextual_tasks::EntryPointOption::kToolbarEphemeralBranded) {
 diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
-index 50e546251e9f8..31ac903ea3d67 100644
+index 50e546251e9f8..9f6303ee43644 100644
 --- a/chrome/browser/ui/views/toolbar/toolbar_view.h
 +++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
-@@ -456,6 +456,7 @@ class ToolbarView : public views::AccessiblePaneView,
+@@ -197,6 +197,9 @@ class ToolbarView : public views::AccessiblePaneView,
+   }
+   MediaToolbarButton* media_button() const { return media_button_; }
+   HomeButton* home_button() const { return home_; }
++  ToolbarButton* haze_tab_toggle_button() const {
++    return haze_tab_toggle_button_;
++  }
+ 
+   // Returns the native Views Glic button, or nullptr if the Glic button is not
+   // created or is rendered by the WebUI toolbar (`features::kWebUIGlicButton`).
+@@ -456,6 +459,7 @@ class ToolbarView : public views::AccessiblePaneView,
    std::unique_ptr<views::MouseWatcher> mouse_watcher_;
  
    raw_ptr<ToolbarButton> ai_overlay_dialog_button_ = nullptr;
