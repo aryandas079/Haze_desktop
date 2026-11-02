@@ -155,5 +155,5 @@ Haze produces a portable runtime directly in `D:\Chromium\src\out\WinDefault\`:
 
 ## License and Attribution
 
-- **Haze**: Licensed under the [MIT License](LICENSE).
+- **Haze**: Licensed under the [Apache License 2.0](LICENSE).
 - **Chromium Engine**: Licensed under the [Chromium BSD-style license](docs/THIRD_PARTY_NOTICES.md).
