@@ -17,7 +17,7 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
 **Haze** is a bespoke, high-performance desktop web browser built by applying custom branding, UX simplifications, and feature patches directly onto the native **Chromium source engine**.
 
@@ -25,24 +25,24 @@ Rather than relying on embedded wrappers or WebView containers, Haze compiles di
 
 ---
 
-## 🗂️ Architecture & Project Structure
+## Architecture and Project Structure
 
 The project maintains a strict separation between upstream Chromium source code and Haze-specific customization:
 
 ```text
 D:\
 ├── Chromium\
-│   └── src\                         ← Upstream Chromium source tree (clean base)
-│       └── out\WinDefault\          ← Local compilation workspace
-│           └── haze.exe             ← Compiled native browser executable
+│   └── src\                         <- Upstream Chromium source tree (clean base)
+│       └── out\WinDefault\          <- Local compilation workspace
+│           └── haze.exe             <- Compiled native browser executable
 │
 └── Projects\
-    └── Haze_desktop\                ← Haze source repository (Version Controlled)
-        ├── branding\                ← Official Haze logos, icons, and metadata
-        ├── config\                  ← GN compiler configurations (args.gn)
-        ├── docs\                    ← Setup guides & third-party notices
-        ├── patches\                 ← Versioned diff patches applied onto Chromium
-        ├── scripts\                 ← Automated patch, build, and launch scripts
+    └── Haze_desktop\                <- Haze source repository (Version Controlled)
+        ├── branding\                <- Official Haze logos, icons, and metadata
+        ├── config\                  <- GN compiler configurations (args.gn)
+        ├── docs\                    <- Setup guides and third-party notices
+        ├── patches\                 <- Versioned diff patches applied onto Chromium
+        ├── scripts\                 <- Automated patch, build, and launch scripts
         ├── LICENSE
         ├── README.md
         └── .gitignore
@@ -53,34 +53,34 @@ D:\
 
 ---
 
-## ✨ Features Implemented So Far
+## Features Implemented So Far
 
-### 1. 🎨 Native Haze Branding & Visual Identity
+### 1. Native Haze Branding and Visual Identity
 - **Custom Application Identity**: Product names configured across binary resource tables, process identifiers, and window classes (`IDS_PRODUCT_NAME` set to `Haze`).
 - **Multi-Resolution Vector Icons**: High-DPI icons embedded in `chrome.dll` and `haze.exe` ensuring sharp taskbar, Alt+Tab, and title bar icons across Windows scaling levels (100% to 250%).
 - **Fixed App Icon Theme**: Brand icon colors remain stable regardless of Windows dark/light system theme switches.
 
-### 2. 🖥️ Minimalist UI & Window Layout
+### 2. Minimalist UI and Window Layout
 - **Single-Bar Compact Titlebar**: Streamlined top frame inset integrating window caption buttons directly with the navigation bar to maximize vertical webpage real estate.
 - **Custom Dropdown Tab Strip**: Refactored tab management providing a clean dropdown selector in place of bulky tab strips.
-- **Menu Overhaul & Hover Stabilization**: Re-engineered application menu with increased spacing, clean typography, and flickering-free hover interaction.
+- **Menu Overhaul and Hover Stabilization**: Re-engineered application menu with increased spacing, clean typography, and flickering-free hover interaction.
 
-### 3. 🔍 Bespoke New Tab Page (NTP)
+### 3. Bespoke New Tab Page (NTP)
 - **Haze Vector Hero Logo**: Custom high-resolution vector emblem centered on the homepage.
 - **Streamlined Search**: Direct search integration without intrusive promotional tiles or cluttered widgets.
 - **Clean Settings Integration**: Cleaned out redundant search engine toggles in favor of unified omnibox search routing.
 
-### 4. 👤 Authentication & Account Integration
-- **Google & Firebase Sign-In**: Integration supporting Google OAuth sign-in flow.
+### 4. Authentication and Account Integration
+- **Google and Firebase Sign-In**: Integration supporting Google OAuth sign-in flow.
 - **Dynamic Profile Avatar**: Automatically pulls and renders the authenticated user's account name and profile photo in the top navigation bar.
 
-### 5. ⚙️ Windows SDK & Build Modernization
+### 5. Windows SDK and Build Modernization
 - **Windows SDK Compatibility Patch**: Added build compatibility for Windows 10/11 SDK (`10.0.26100.0+` / Windows 11 24H2) resolving legacy MSVC build breakages.
 - **Component Build Acceleration**: GN configuration optimized for sub-second incremental rebuilds during feature development.
 
 ---
 
-## 🛠️ Prerequisites & Build Requirements
+## Prerequisites and Build Requirements
 
 To compile Haze from source on Windows:
 
@@ -95,11 +95,11 @@ To compile Haze from source on Windows:
 
 ---
 
-## 🚀 Building & Running Haze
+## Building and Running Haze
 
 All build steps are orchestrated through PowerShell scripts located in `scripts/`:
 
-### Step 1: Apply Patches & Assets
+### Step 1: Apply Patches and Assets
 Applies all 23 custom patches and branding assets onto the Chromium tree:
 ```powershell
 .\scripts\apply_patches.ps1 -ChromiumSrc "D:\Chromium\src"
@@ -119,7 +119,7 @@ Launches the freshly compiled browser using an isolated development profile:
 
 ---
 
-## 📦 Packaging & Distributing
+## Packaging and Distributing
 
 Haze produces a portable runtime directly in `D:\Chromium\src\out\WinDefault\`:
 - **Core Binary**: `haze.exe`
@@ -138,7 +138,7 @@ Haze produces a portable runtime directly in `D:\Chromium\src\out\WinDefault\`:
 
 ---
 
-## 🗺️ Roadmap & In-Progress Features
+## Roadmap and In-Progress Features
 
 - [x] Chromium engine base setup and build automation
 - [x] Windows SDK 26100 compatibility patches
@@ -153,7 +153,7 @@ Haze produces a portable runtime directly in `D:\Chromium\src\out\WinDefault\`:
 
 ---
 
-## 📄 License & Attribution
+## License and Attribution
 
 - **Haze**: Licensed under the [MIT License](LICENSE).
 - **Chromium Engine**: Licensed under the [Chromium BSD-style license](docs/THIRD_PARTY_NOTICES.md).
