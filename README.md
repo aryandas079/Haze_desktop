@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-blue" alt="Platform Windows" />
   <img src="https://img.shields.io/badge/Engine-Chromium%20Core-teal" alt="Engine Chromium" />
   <img src="https://img.shields.io/badge/Language-C%2B%2B%20%7C%20PowerShell%20%7C%20WebUI-orange" alt="Languages" />
-  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0" alt="License" />
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
 </p>
 
 ---
