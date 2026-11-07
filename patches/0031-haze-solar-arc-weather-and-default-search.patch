@@ -1558,10 +1558,20 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +</body>
  </html>
 diff --git a/chrome/browser/resources/new_tab_page/new_tab_page.ts b/chrome/browser/resources/new_tab_page/new_tab_page.ts
-index f76200262c35d..d1656a665098b 100644
+index f76200262c35d..4dd658f593d85 100644
 --- a/chrome/browser/resources/new_tab_page/new_tab_page.ts
 +++ b/chrome/browser/resources/new_tab_page/new_tab_page.ts
-@@ -66,3 +66,1692 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
+@@ -9,6 +9,9 @@
+  * things tests need.
+  */
+ 
++// eslint-disable-next-line no-restricted-imports
++import {sendWithPromise} from 'chrome://resources/js/cr.js';
++
+ export {GlifAnimationState} from '//resources/cr_components/composebox/common.js';
+ export {CustomizeButtonsElement} from 'chrome://new-tab-page/shared/customize_buttons/customize_buttons.js';
+ export {PlaceholderTextCycler} from 'chrome://resources/cr_components/searchbox/placeholder_text_cycler.js';
+@@ -66,3 +69,1901 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
  // <if expr="not is_official_build">
  export {FooHandlerRemote} from './foo.mojom-webui.js';
  // </if>
@@ -1624,6 +1634,14 @@ index f76200262c35d..d1656a665098b 100644
 +    dayNum: string;
 +    updatedText: string;
 +    forecast: ForecastItem[];
++    sunrise?: string;
++    sunset?: string;
++    moonrise?: string;
++    moonset?: string;
++    moonPhase?: string;
++    humidity?: string;
++    wind?: string;
++    precipitation?: string;
 +  }
 +
 +
@@ -2002,30 +2020,58 @@ index f76200262c35d..d1656a665098b 100644
 +    const curSec = now.getSeconds();
 +    const currentDecimalHour = curHour + curMin / 60 + curSec / 3600;
 +
-+    const isDay = currentDecimalHour >= 6.0 && currentDecimalHour < 18.0;
++    let isDay = currentDecimalHour >= 6.0 && currentDecimalHour < 18.0;
 +    let progress = 0.5;
 +    let timeTitle = '';
 +
-+    if (isDay) {
-+      // Daytime: 06:00 (Sunrise) to 18:00 (Sunset)
-+      progress = (currentDecimalHour - 6.0) / 12.0;
-+      const secondsToSunset = (18.0 - currentDecimalHour) * 3600;
-+      const hLeft = Math.floor(secondsToSunset / 3600);
-+      const mLeft = Math.floor((secondsToSunset % 3600) / 60);
-+      timeTitle = `${hLeft}h ${mLeft}m left until sunset (Sunset at 6:00 PM)`;
-+    } else {
-+      // Nighttime: 18:00 (Moonrise / Sunset) to 06:00 (Moonset / Sunrise)
-+      if (currentDecimalHour >= 18.0) {
-+        progress = (currentDecimalHour - 18.0) / 12.0;
++    if (activeWeather.sunrise && activeWeather.sunset) {
++      const parseTimeMin = (timeStr: string): number => {
++        const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
++        if (!match) return 360;
++        let h = parseInt(match[1] || '0', 10);
++        const m = parseInt(match[2] || '0', 10);
++        const isPM = (match[3] || '').toUpperCase() === 'PM';
++        if (isPM && h < 12) h += 12;
++        if (!isPM && h === 12) h = 0;
++        return h * 60 + m;
++      };
++      const riseMin = parseTimeMin(activeWeather.sunrise);
++      const setMin = parseTimeMin(activeWeather.sunset);
++      const curMinTotal = curHour * 60 + curMin;
++      isDay = (curMinTotal >= riseMin && curMinTotal < setMin);
++
++      if (isDay) {
++        const dayDuration = Math.max(1, setMin - riseMin);
++        progress = Math.max(0.04, Math.min(0.96, (curMinTotal - riseMin) / dayDuration));
++        const leftMin = setMin - curMinTotal;
++        timeTitle = `${Math.floor(leftMin / 60)}h ${leftMin % 60}m left until sunset (Sunset at ${activeWeather.sunset})`;
 +      } else {
-+        progress = (currentDecimalHour + 6.0) / 12.0;
++        const nightDuration = Math.max(1, (1440 - setMin) + riseMin);
++        const nightElapsed = curMinTotal >= setMin ? (curMinTotal - setMin) : (1440 - setMin + curMinTotal);
++        progress = Math.max(0.04, Math.min(0.96, nightElapsed / nightDuration));
++        const leftMin = curMinTotal < riseMin ? (riseMin - curMinTotal) : (1440 - curMinTotal + riseMin);
++        timeTitle = `${Math.floor(leftMin / 60)}h ${leftMin % 60}m left until sunrise (Sunrise at ${activeWeather.sunrise})`;
 +      }
-+      const secondsToSunrise = currentDecimalHour >= 18.0
-+        ? ((24.0 - currentDecimalHour + 6.0) * 3600)
-+        : ((6.0 - currentDecimalHour) * 3600);
-+      const hLeft = Math.floor(secondsToSunrise / 3600);
-+      const mLeft = Math.floor((secondsToSunrise % 3600) / 60);
-+      timeTitle = `${hLeft}h ${mLeft}m left until sunrise (Moonset at 6:00 AM)`;
++    } else {
++      if (isDay) {
++        progress = (currentDecimalHour - 6.0) / 12.0;
++        const secondsToSunset = (18.0 - currentDecimalHour) * 3600;
++        const hLeft = Math.floor(secondsToSunset / 3600);
++        const mLeft = Math.floor((secondsToSunset % 3600) / 60);
++        timeTitle = `${hLeft}h ${mLeft}m left until sunset (Sunset at 6:00 PM)`;
++      } else {
++        if (currentDecimalHour >= 18.0) {
++          progress = (currentDecimalHour - 18.0) / 12.0;
++        } else {
++          progress = (currentDecimalHour + 6.0) / 12.0;
++        }
++        const secondsToSunrise = currentDecimalHour >= 18.0
++          ? ((24.0 - currentDecimalHour + 6.0) * 3600)
++          : ((6.0 - currentDecimalHour) * 3600);
++        const hLeft = Math.floor(secondsToSunrise / 3600);
++        const mLeft = Math.floor((secondsToSunrise % 3600) / 60);
++        timeTitle = `${hLeft}h ${mLeft}m left until sunrise (Moonset at 6:00 AM)`;
++      }
 +    }
 +
 +    const pt = getSolarArcPoint(progress);
@@ -2386,7 +2432,7 @@ index f76200262c35d..d1656a665098b 100644
 +    }
 +  };
 +
-+  function computeCityWeather(query: string): void {
++  function applyFallbackCityWeather(query: string): void {
 +    const trimmed = query.trim();
 +    const key = trimmed.toLowerCase();
 +    const preset = (key === 'auto' || key === 'your location') ? CITY_PRESETS['silchar'] : (CITY_PRESETS[key] || null);
@@ -2558,8 +2604,181 @@ index f76200262c35d..d1656a665098b 100644
 +    renderFullWeatherUI();
 +  }
 +
++  let weatherRequestId = 0;
++
++  async function fetchLiveWeather(query: string): Promise<boolean> {
++    const curReqId = ++weatherRequestId;
++    try {
++      const targetQuery = query.trim();
++      const raw = await sendWithPromise<string>('getHazeWeather', targetQuery);
++      if (curReqId !== weatherRequestId) return false;
++      if (!raw) return false;
++      const data = JSON.parse(raw);
++      if (!data.current_condition || !data.current_condition[0]) return false;
++
++      const cur = data.current_condition[0];
++      const liveTemp = parseInt(cur.temp_C, 10);
++      const rawCond = (cur.weatherDesc && cur.weatherDesc[0]?.value) ? cur.weatherDesc[0].value.trim() : 'Clear';
++
++      const condLower = rawCond.toLowerCase();
++      let theme: 'rain' | 'sunny' | 'cloudy' | 'night' | 'snow' = 'sunny';
++      let iconType: 'sun' | 'rain' | 'cloud' | 'snow' | 'night' = 'sun';
++
++      if (condLower.includes('rain') || condLower.includes('drizzle') || condLower.includes('shower') || condLower.includes('thunder')) {
++        theme = 'rain';
++        iconType = 'rain';
++      } else if (condLower.includes('snow') || condLower.includes('sleet') || condLower.includes('blizzard') || condLower.includes('ice')) {
++        theme = 'snow';
++        iconType = 'snow';
++      } else if (condLower.includes('cloud') || condLower.includes('overcast') || condLower.includes('fog') || condLower.includes('mist') || condLower.includes('haze')) {
++        theme = 'cloudy';
++        iconType = 'cloud';
++      } else {
++        theme = 'sunny';
++        iconType = 'sun';
++      }
++
++      let cityName = targetQuery;
++      let countryName = 'Global';
++      if (data.nearest_area && data.nearest_area[0]) {
++        const area = data.nearest_area[0];
++        const areaVal = area.areaName?.[0]?.value;
++        const regVal = area.region?.[0]?.value;
++        const ctryVal = area.country?.[0]?.value;
++        if (areaVal && (!cityName || cityName.toLowerCase() === 'auto' || cityName.toLowerCase() === 'your location')) {
++          cityName = areaVal;
++        }
++        countryName = regVal ? `${regVal}, ${ctryVal}` : (ctryVal || 'Global');
++      }
++
++      const timezone = resolveCityTimezone(cityName);
++      const now = getCityDate(timezone);
++      const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
++
++      let sunriseStr = '';
++      let sunsetStr = '';
++      let moonriseStr = '';
++      let moonsetStr = '';
++      let moonPhaseStr = '';
++
++      let isNight = false;
++      if (data.weather && data.weather[0]?.astronomy && data.weather[0].astronomy[0]) {
++        const astro = data.weather[0].astronomy[0];
++        sunriseStr = astro.sunrise || '05:30 AM';
++        sunsetStr = astro.sunset || '05:30 PM';
++        moonriseStr = astro.moonrise || '04:00 AM';
++        moonsetStr = astro.moonset || '04:00 PM';
++        moonPhaseStr = astro.moon_phase || 'Waning Crescent';
++
++        const parseTimeMin = (timeStr: string): number => {
++          const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
++          if (!match) return 360;
++          let h = parseInt(match[1] || '0', 10);
++          const m = parseInt(match[2] || '0', 10);
++          const isPM = (match[3] || '').toUpperCase() === 'PM';
++          if (isPM && h < 12) h += 12;
++          if (!isPM && h === 12) h = 0;
++          return h * 60 + m;
++        };
++        const riseMin = parseTimeMin(sunriseStr);
++        const setMin = parseTimeMin(sunsetStr);
++        const curMin = now.getHours() * 60 + now.getMinutes();
++        isNight = (curMin < riseMin || curMin >= setMin);
++      } else {
++        const hour = now.getHours();
++        isNight = (hour >= 18 || hour < 6);
++      }
++
++      if (isNight && theme !== 'rain') {
++        theme = 'night';
++        iconType = 'night';
++      }
++
++      const forecast: ForecastItem[] = [];
++      if (data.weather && Array.isArray(data.weather)) {
++        for (let i = 0; i < 7; i++) {
++          const d = new Date();
++          d.setDate(now.getDate() + i + 1);
++          const dName = days[d.getDay()] || 'DAY';
++          const dNum = String(d.getDate()).padStart(2, '0');
++
++          if (i < data.weather.length && data.weather[i]) {
++            const wDay = data.weather[i];
++            const minT = parseInt(wDay.mintempC, 10);
++            const maxT = parseInt(wDay.maxtempC, 10);
++            const dDesc = (wDay.hourly?.[4]?.weatherDesc?.[0]?.value || wDay.hourly?.[2]?.weatherDesc?.[0]?.value || 'Clear').toUpperCase();
++            const dLower = dDesc.toLowerCase();
++            let dIcon: 'sun' | 'rain' | 'cloud' = 'sun';
++            if (dLower.includes('rain') || dLower.includes('drizzle') || dLower.includes('shower')) dIcon = 'rain';
++            else if (dLower.includes('cloud') || dLower.includes('overcast') || dLower.includes('fog')) dIcon = 'cloud';
++            forecast.push({
++              dayName: dName,
++              dayNum: dNum,
++              conditionText: dDesc,
++              iconType: dIcon,
++              tempMax: maxT,
++              tempMin: minT
++            });
++          } else {
++            const prev = forecast[forecast.length - 1];
++            const delta = (i % 2 === 0 ? 1 : -1);
++            forecast.push({
++              dayName: dName,
++              dayNum: dNum,
++              conditionText: prev ? prev.conditionText : 'PARTLY CLOUDY',
++              iconType: prev ? prev.iconType : 'cloud',
++              tempMax: (prev ? prev.tempMax : liveTemp + 2) + delta,
++              tempMin: (prev ? prev.tempMin : liveTemp - 6) + delta
++            });
++          }
++        }
++      }
++
++      activeWeather = {
++        city: cityName,
++        country: countryName,
++        timezone,
++        lat: 24.82,
++        lon: 92.80,
++        temp: liveTemp,
++        conditionTitle: rawCond,
++        theme,
++        iconType,
++        dayName: days[now.getDay()] || 'DAY',
++        dayNum: String(now.getDate()).padStart(2, '0'),
++        updatedText: 'Updated just now',
++        forecast,
++        sunrise: sunriseStr,
++        sunset: sunsetStr,
++        moonrise: moonriseStr,
++        moonset: moonsetStr,
++        moonPhase: moonPhaseStr,
++        humidity: `${cur.humidity || '70'}%`,
++        wind: `${cur.windspeedKmph || '10'} km/h`,
++        precipitation: `${cur.precipMM || '0.0'} mm`
++      };
++
++      try {
++        localStorage.setItem('haze_weather_city', cityName);
++        localStorage.setItem('haze_weather_live_state', JSON.stringify(activeWeather));
++      } catch (_e) {}
++
++      renderFullWeatherUI();
++      return true;
++    } catch (err) {
++      console.warn('Live weather fetch error:', err);
++      return false;
++    }
++  }
++
++  function computeCityWeather(query: string): void {
++    applyFallbackCityWeather(query);
++    fetchLiveWeather(query);
++  }
++
 +  function detectRealUserLocation(): void {
-+    computeCityWeather('Silchar');
++    applyFallbackCityWeather('Silchar');
++    fetchLiveWeather('');
 +  }
 +
 +  function searchLocation(query: string): void {
@@ -3255,10 +3474,26 @@ index f76200262c35d..d1656a665098b 100644
 +  initHazeHomescreen();
 +}
 diff --git a/chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.cc b/chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.cc
-index 648c544dec491..40ac9391b9242 100644
+index 648c544dec491..2910a211c7461 100644
 --- a/chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.cc
 +++ b/chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.cc
-@@ -223,6 +223,15 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
+@@ -11,6 +11,15 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/strings/escape.h"
++#include "content/public/browser/web_ui_message_handler.h"
++#include "net/base/url_util.h"
++#include "net/http/http_request_headers.h"
++#include "net/traffic_annotation/network_traffic_annotation.h"
++#include "services/network/public/cpp/resource_request.h"
++#include "services/network/public/cpp/simple_url_loader.h"
++#include "services/network/public/mojom/url_response_head.mojom.h"
++
+ #include "base/command_line.h"
+ #include "base/logging.h"
+ #include "base/metrics/histogram_functions.h"
+@@ -223,6 +232,15 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
                                    .GoogleBaseURLValue());
    source->AddString("googleBaseUrl", google_base_url.spec());
  
@@ -3274,3 +3509,94 @@ index 648c544dec491..40ac9391b9242 100644
    GURL threads_url = google_base_url.Resolve("/search");
    threads_url = net::AppendQueryParameter(threads_url, "udm", kAIMDisplayMode);
    threads_url = net::AppendQueryParameter(
+@@ -879,6 +897,81 @@ constexpr std::string_view kEmptyBrowserPromo = "empty";
+ #endif
+ constexpr std::string_view kDisabledBrowserPromo = "disabled";
+ 
++class HazeWeatherMessageHandler : public content::WebUIMessageHandler {
++ public:
++  explicit HazeWeatherMessageHandler(Profile* profile) : profile_(profile) {}
++  ~HazeWeatherMessageHandler() override = default;
++
++  void RegisterMessages() override {
++    web_ui()->RegisterMessageCallback(
++        "getHazeWeather",
++        base::BindRepeating(&HazeWeatherMessageHandler::HandleGetWeather,
++                            base::Unretained(this)));
++  }
++
++ private:
++  void HandleGetWeather(const base::ListValue& args) {
++    AllowJavascript();
++    if (args.empty()) {
++      return;
++    }
++    const base::Value& callback_id = args[0];
++    std::string query;
++    if (args.size() > 1 && args[1].is_string()) {
++      query = args[1].GetString();
++    }
++
++    std::string path =
++        query.empty() ? "" : base::EscapeQueryParamValue(query, false);
++    GURL weather_url("https://wttr.in/" + path + "?format=j1");
++
++    net::NetworkTrafficAnnotationTag traffic_annotation =
++        net::DefineNetworkTrafficAnnotation("haze_weather_fetcher", R"(
++          semantics {
++            sender: "Haze Live Weather Widget"
++            description: "Fetches current live weather and forecast for user location."
++            trigger: "User opens New Tab Page or searches weather location."
++            data: "Location query string (city name)."
++            destination: OTHER
++          }
++          policy {
++            cookies_allowed: NO
++            setting: "This feature cannot be disabled by settings."
++            policy_exception_justification: "Not implemented."
++          })");
++
++    auto resource_request = std::make_unique<network::ResourceRequest>();
++    resource_request->url = weather_url;
++    resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
++    resource_request->headers.SetHeader(net::HttpRequestHeaders::kUserAgent, "curl/8.0");
++
++    auto loader = network::SimpleURLLoader::Create(std::move(resource_request),
++                                                   traffic_annotation);
++    loader->SetTimeoutDuration(base::Seconds(6));
++
++    auto* raw_loader = loader.get();
++    raw_loader->DownloadToString(
++        profile_->GetURLLoaderFactory().get(),
++        base::BindOnce(&HazeWeatherMessageHandler::OnWeatherLoaded,
++                       weak_ptr_factory_.GetWeakPtr(), std::move(loader),
++                       callback_id.Clone()),
++        512 * 1024);
++  }
++
++  void OnWeatherLoaded(std::unique_ptr<network::SimpleURLLoader> loader,
++                       base::Value callback_id,
++                       std::optional<std::string> body) {
++    if (body && !body->empty() && body->front() == '{') {
++      ResolveJavascriptCallback(callback_id, base::Value(*body));
++    } else {
++      RejectJavascriptCallback(callback_id, base::Value("Failed to load weather"));
++    }
++  }
++
++  raw_ptr<Profile> profile_;
++  base::WeakPtrFactory<HazeWeatherMessageHandler> weak_ptr_factory_{this};
++};
++
+ }  // namespace
+ 
+ // static
+@@ -965,6 +1058,8 @@ NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
+   plural_string_handler->AddLocalizedString("sharingTabs",
+                                             IDS_COMPOSE_SHARING_TABS);
+   web_ui->AddMessageHandler(std::move(plural_string_handler));
++  web_ui->AddMessageHandler(
++      std::make_unique<HazeWeatherMessageHandler>(profile_));
+ 
+   content::URLDataSource::Add(profile_,
+                               std::make_unique<SanitizedImageSource>(profile_));
