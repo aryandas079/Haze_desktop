@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/resources/new_tab_page/new_tab_page.html b/chrome/browser/resources/new_tab_page/new_tab_page.html
-index 6c1e975f9d7c9..323bff837a5b2 100644
+index 6c1e975f9d7c9..924e73918981f 100644
 --- a/chrome/browser/resources/new_tab_page/new_tab_page.html
 +++ b/chrome/browser/resources/new_tab_page/new_tab_page.html
 @@ -1,35 +1,1583 @@
@@ -874,18 +874,18 @@ index 6c1e975f9d7c9..323bff837a5b2 100644
 +/* Digital Watch (HH:MM) with Depth Effect */
 +.haze-digital-clock {
 +  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-+  font-size: clamp(96px, 13vw, 150px);
++  font-size: clamp(100px, 13.5vw, 154px);
 +  font-weight: 700;
-+  line-height: 0.82;
-+  letter-spacing: -4px;
++  line-height: 0.88;
++  letter-spacing: -2px;
 +  font-variant-numeric: tabular-nums;
 +  font-feature-settings: "tnum";
-+  color: rgba(28, 32, 42, 0.40);
-+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
++  color: rgba(30, 35, 48, 0.68);
++  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
 +  user-select: none;
 +  pointer-events: none;
 +  z-index: 10;
-+  margin-bottom: -46px;
++  margin-bottom: -16px;
 +  transition: opacity 0.25s ease, color 0.3s ease;
 +  animation: fadeIn 0.4s ease-out;
 +}
@@ -1307,8 +1307,8 @@ index 6c1e975f9d7c9..323bff837a5b2 100644
 +    color: #FFFFFF !important;
 +  }
 +  .haze-digital-clock {
-+    color: rgba(255, 255, 255, 0.28) !important;
-+    text-shadow: 0 8px 30px rgba(0, 0, 0, 0.45) !important;
++    color: rgba(255, 255, 255, 0.52) !important;
++    text-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
 +  }
 +  .pin-tile {
 +    background: #1E2024 !important;
