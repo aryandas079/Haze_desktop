@@ -1,8 +1,8 @@
 diff --git a/chrome/browser/resources/new_tab_page/new_tab_page.html b/chrome/browser/resources/new_tab_page/new_tab_page.html
-index 6c1e975f9d7c9..1de3c7644cd5f 100644
+index 6c1e975f9d7c9..323bff837a5b2 100644
 --- a/chrome/browser/resources/new_tab_page/new_tab_page.html
 +++ b/chrome/browser/resources/new_tab_page/new_tab_page.html
-@@ -1,35 +1,1520 @@
+@@ -1,35 +1,1583 @@
 -<!doctype html>
 -<html dir="$i18n{textdirection}" lang="$i18n{language}" $i18n{roundedIconsAttribute} $i18n{webuiRoundedIconsAttribute}>
 -  <head>
@@ -855,20 +855,58 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +  pointer-events: none;
 +}
 +
-+/* Shortcut Pins Container */
-+.haze-pins-container {
++/* Center Hero Stage */
++.haze-hero-stage {
 +  position: absolute;
 +  top: 42%;
 +  left: 50%;
 +  transform: translate(-50%, -50%);
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  width: 90%;
++  max-width: 620px;
++  pointer-events: none;
++  z-index: 20;
++}
++
++/* Digital Watch (HH:MM) with Depth Effect */
++.haze-digital-clock {
++  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
++  font-size: clamp(96px, 13vw, 150px);
++  font-weight: 700;
++  line-height: 0.82;
++  letter-spacing: -4px;
++  font-variant-numeric: tabular-nums;
++  font-feature-settings: "tnum";
++  color: rgba(28, 32, 42, 0.40);
++  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
++  user-select: none;
++  pointer-events: none;
++  z-index: 10;
++  margin-bottom: -46px;
++  transition: opacity 0.25s ease, color 0.3s ease;
++  animation: fadeIn 0.4s ease-out;
++}
++.haze-digital-clock.hidden {
++  display: none !important;
++}
++.haze-hero-stage:has(.haze-pins-container.hidden) .haze-digital-clock {
++  margin-bottom: 0;
++}
++
++/* Shortcut Pins Container */
++.haze-pins-container {
++  position: relative;
 +  display: grid;
 +  grid-template-columns: repeat(6, 84px);
 +  gap: 16px;
 +  justify-content: center;
-+  max-width: 620px;
-+  width: 90%;
++  width: 100%;
 +  animation: fadeIn 0.35s ease-out;
-+  z-index: 50;
++  z-index: 30;
++  pointer-events: auto;
 +}
 +.haze-pins-container.hidden {
 +  display: none !important;
@@ -885,17 +923,19 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +  align-items: center;
 +  justify-content: center;
 +  gap: 8px;
-+  background: rgba(0, 0, 0, 0.02);
-+  border: 1px solid rgba(0, 0, 0, 0.05);
++  background: #FFFFFF;
++  border: 1px solid rgba(0, 0, 0, 0.06);
++  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 +  text-decoration: none;
 +  color: inherit;
 +  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 +  cursor: pointer;
++  pointer-events: auto;
 +}
 +.pin-tile:hover {
-+  background: rgba(0, 0, 0, 0.05);
++  background: #FFFFFF;
 +  transform: translateY(-3px);
-+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
++  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
 +}
 +
 +/* Tile Favicon Box */
@@ -980,12 +1020,14 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +
 +/* "+" Add Pin Button Tile */
 +.add-pin-tile {
-+  border: 1.5px dashed rgba(0, 0, 0, 0.15);
-+  background: transparent;
++  border: 1.5px dashed rgba(0, 0, 0, 0.16);
++  background: #FFFFFF;
++  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
 +}
 +.add-pin-tile:hover {
-+  border-color: rgba(0, 0, 0, 0.3);
-+  background: rgba(0, 0, 0, 0.02);
++  border-color: rgba(0, 0, 0, 0.35);
++  background: #FFFFFF;
++  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
 +}
 +.add-pin-icon {
 +  width: 22px;
@@ -1264,14 +1306,19 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +    background: #10B981 !important;
 +    color: #FFFFFF !important;
 +  }
++  .haze-digital-clock {
++    color: rgba(255, 255, 255, 0.28) !important;
++    text-shadow: 0 8px 30px rgba(0, 0, 0, 0.45) !important;
++  }
 +  .pin-tile {
-+    background: rgba(255, 255, 255, 0.035) !important;
++    background: #1E2024 !important;
 +    border-color: rgba(255, 255, 255, 0.08) !important;
 +    color: #E5E7EB !important;
++    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
 +  }
 +  .pin-tile:hover {
-+    background: rgba(255, 255, 255, 0.08) !important;
-+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
++    background: #25282E !important;
++    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
 +  }
 +  .tile-icon-box {
 +    background: rgba(45, 48, 54, 0.9) !important;
@@ -1294,11 +1341,12 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +  }
 +  .add-pin-tile {
 +    border-color: rgba(255, 255, 255, 0.18) !important;
-+    background: transparent !important;
++    background: #1E2024 !important;
++    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
 +  }
 +  .add-pin-tile:hover {
 +    border-color: rgba(255, 255, 255, 0.35) !important;
-+    background: rgba(255, 255, 255, 0.03) !important;
++    background: #25282E !important;
 +  }
 +  .modal-card {
 +    background: #23262A !important;
@@ -1384,6 +1432,18 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +    </div>
 +    <label class="haze-switch">
 +      <input type="checkbox" id="weatherToggle" checked>
++      <span class="haze-slider"></span>
++    </label>
++  </div>
++
++  <!-- Clock Setting -->
++  <div class="menu-item-row">
++    <div class="menu-item-info">
++      <span class="menu-item-title">Clock</span>
++      <span class="menu-item-desc">Show digital watch</span>
++    </div>
++    <label class="haze-switch">
++      <input type="checkbox" id="clockToggle" checked>
 +      <span class="haze-slider"></span>
 +    </label>
 +  </div>
@@ -1522,9 +1582,12 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +  </div>
 +</div>
 +
-+<!-- Center Shortcut Pins Grid -->
-+<div class="haze-pins-container" id="pinsContainer">
-+  <!-- Dynamic pins injected here -->
++<!-- Center Hero Stage: Digital Watch with Depth Effect & Shortcut Pins Grid -->
++<div class="haze-hero-stage" id="heroStage">
++  <div class="haze-digital-clock" id="digitalClock" aria-hidden="true"></div>
++  <div class="haze-pins-container" id="pinsContainer">
++    <!-- Dynamic pins injected here -->
++  </div>
 +</div>
 +
 +<!-- Add Pin Modal -->
@@ -1558,7 +1621,7 @@ index 6c1e975f9d7c9..1de3c7644cd5f 100644
 +</body>
  </html>
 diff --git a/chrome/browser/resources/new_tab_page/new_tab_page.ts b/chrome/browser/resources/new_tab_page/new_tab_page.ts
-index f76200262c35d..4dd658f593d85 100644
+index f76200262c35d..2340b331c005b 100644
 --- a/chrome/browser/resources/new_tab_page/new_tab_page.ts
 +++ b/chrome/browser/resources/new_tab_page/new_tab_page.ts
 @@ -9,6 +9,9 @@
@@ -1571,7 +1634,7 @@ index f76200262c35d..4dd658f593d85 100644
  export {GlifAnimationState} from '//resources/cr_components/composebox/common.js';
  export {CustomizeButtonsElement} from 'chrome://new-tab-page/shared/customize_buttons/customize_buttons.js';
  export {PlaceholderTextCycler} from 'chrome://resources/cr_components/searchbox/placeholder_text_cycler.js';
-@@ -66,3 +69,1901 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
+@@ -66,3 +69,1946 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
  // <if expr="not is_official_build">
  export {FooHandlerRemote} from './foo.mojom-webui.js';
  // </if>
@@ -3036,6 +3099,51 @@ index f76200262c35d..4dd658f593d85 100644
 +      closeModal();
 +    }
 +  });
++
++  // Digital Watch (HH:MM) with Depth Effect
++  const digitalClock = document.getElementById('digitalClock');
++  const clockToggle = document.getElementById('clockToggle') as HTMLInputElement | null;
++
++  function updateDigitalClock(): void {
++    if (!digitalClock) {
++      return;
++    }
++    const now = new Date();
++    const hh = String(now.getHours()).padStart(2, '0');
++    const mm = String(now.getMinutes()).padStart(2, '0');
++    digitalClock.textContent = `${hh}:${mm}`;
++  }
++
++  updateDigitalClock();
++  setInterval(updateDigitalClock, 1000);
++
++  // Clock visibility persistence
++  const savedClockState = localStorage.getItem('haze_clock_enabled');
++  const isClockEnabled = savedClockState !== null ? savedClockState === 'true' : true;
++  if (clockToggle) {
++    clockToggle.checked = isClockEnabled;
++  }
++  if (!isClockEnabled && digitalClock) {
++    digitalClock.classList.add('hidden');
++  }
++
++  if (clockToggle) {
++    clockToggle.addEventListener('change', () => {
++      const enabled = clockToggle.checked;
++      try {
++        localStorage.setItem('haze_clock_enabled', enabled ? 'true' : 'false');
++      } catch (_e) {}
++      if (enabled) {
++        if (digitalClock) {
++          digitalClock.classList.remove('hidden');
++        }
++      } else {
++        if (digitalClock) {
++          digitalClock.classList.add('hidden');
++        }
++      }
++    });
++  }
 +
 +  // 4. Pins and Frequent Shortcuts Management
 +  const pinsContainer = document.getElementById('pinsContainer');
