@@ -1621,7 +1621,7 @@ index 6c1e975f9d7c9..924e73918981f 100644
 +</body>
  </html>
 diff --git a/chrome/browser/resources/new_tab_page/new_tab_page.ts b/chrome/browser/resources/new_tab_page/new_tab_page.ts
-index f76200262c35d..2340b331c005b 100644
+index f76200262c35d..1af7fab351d6b 100644
 --- a/chrome/browser/resources/new_tab_page/new_tab_page.ts
 +++ b/chrome/browser/resources/new_tab_page/new_tab_page.ts
 @@ -9,6 +9,9 @@
@@ -1634,7 +1634,7 @@ index f76200262c35d..2340b331c005b 100644
  export {GlifAnimationState} from '//resources/cr_components/composebox/common.js';
  export {CustomizeButtonsElement} from 'chrome://new-tab-page/shared/customize_buttons/customize_buttons.js';
  export {PlaceholderTextCycler} from 'chrome://resources/cr_components/searchbox/placeholder_text_cycler.js';
-@@ -66,3 +69,1946 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
+@@ -66,3 +69,1997 @@ export {DecorationType, FormFactor, VisitSource} from './url_visit_types.mojom-w
  // <if expr="not is_official_build">
  export {FooHandlerRemote} from './foo.mojom-webui.js';
  // </if>
@@ -2003,6 +2003,8 @@ index f76200262c35d..2340b331c005b 100644
 +  const weatherFlyoutCityInput = document.getElementById('weatherFlyoutCityInput') as HTMLInputElement | null;
 +  const weatherFlyoutCityBtn = document.getElementById('weatherFlyoutCityBtn');
 +  const weatherFlyoutCityDesc = document.getElementById('weatherFlyoutCityDesc');
++  const digitalClock = document.getElementById('digitalClock');
++  const clockToggle = document.getElementById('clockToggle') as HTMLInputElement | null;
 +
 +  // Helper to calculate point along solar arc cubic Bezier (P0=(12,26), P1=(52,6), P2=(144,6), P3=(184,26))
 +  function getSolarArcPoint(t: number): { x: number; y: number } {
@@ -2066,7 +2068,8 @@ index f76200262c35d..2340b331c005b 100644
 +  } catch (_e) {}
 +
 +  function renderFullWeatherUI(): void {
-+    const tz = activeWeather.timezone || resolveCityTimezone(activeWeather.city);
++    const tz = activeWeather.timezone || resolveCityTimezone(activeWeather.city, activeWeather.country, activeWeather.lon);
++    updateDigitalClock();
 +    const now = getCityDate(tz);
 +    // 1. Render Solar Arc Weather Widget
 +    if (solarWeatherText) {
@@ -2304,21 +2307,31 @@ index f76200262c35d..2340b331c005b 100644
 +    customForecast?: { cond: string; icon: 'sun' | 'rain' | 'cloud'; dMax: number; dMin: number }[];
 +  }
 +
-+  function resolveCityTimezone(query: string): string {
-+    const q = query.toLowerCase();
-+    if (q.includes('sydney') || q.includes('melbourne') || q.includes('brisbane') || q.includes('canberra')) return 'Australia/Sydney';
++  function resolveCityTimezone(query: string, country?: string, lon?: number): string {
++    const q = `${query} ${country || ''}`.toLowerCase().trim();
++    if (!q || q === 'auto' || q === 'your location') {
++      try {
++        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
++      } catch (_e) {
++        return 'Asia/Kolkata';
++      }
++    }
++    if (q.includes('sydney') || q.includes('melbourne') || q.includes('brisbane') || q.includes('canberra') || q.includes('australia')) return 'Australia/Sydney';
 +    if (q.includes('perth')) return 'Australia/Perth';
 +    if (q.includes('auckland') || q.includes('wellington') || q.includes('new zealand')) return 'Pacific/Auckland';
 +    if (q.includes('tokyo') || q.includes('osaka') || q.includes('kyoto') || q.includes('japan')) return 'Asia/Tokyo';
-+    if (q.includes('london') || q.includes('manchester') || q.includes('uk') || q.includes('england')) return 'Europe/London';
++    if (q.includes('london') || q.includes('manchester') || q.includes('uk') || q.includes('england') || q.includes('united kingdom')) return 'Europe/London';
++    if (q.includes('dublin') || q.includes('ireland')) return 'Europe/Dublin';
 +    if (q.includes('paris') || q.includes('france') || q.includes('lyon')) return 'Europe/Paris';
 +    if (q.includes('berlin') || q.includes('munich') || q.includes('germany') || q.includes('frankfurt')) return 'Europe/Berlin';
 +    if (q.includes('rome') || q.includes('milan') || q.includes('italy')) return 'Europe/Rome';
 +    if (q.includes('madrid') || q.includes('barcelona') || q.includes('spain')) return 'Europe/Madrid';
-+    if (q.includes('new york') || q.includes('nyc') || q.includes('boston') || q.includes('miami') || q.includes('washington')) return 'America/New_York';
++    if (q.includes('amsterdam') || q.includes('netherlands')) return 'Europe/Amsterdam';
++    if (q.includes('zurich') || q.includes('geneva') || q.includes('switzerland')) return 'Europe/Zurich';
++    if (q.includes('new york') || q.includes('nyc') || q.includes('boston') || q.includes('miami') || q.includes('washington') || q.includes('atlanta')) return 'America/New_York';
 +    if (q.includes('chicago') || q.includes('dallas') || q.includes('houston') || q.includes('austin')) return 'America/Chicago';
-+    if (q.includes('denver') || q.includes('phoenix') || q.includes('salt lake')) return 'America/Denver';
-+    if (q.includes('san francisco') || q.includes('los angeles') || q.includes('seattle') || q.includes('california')) return 'America/Los_Angeles';
++    if (q.includes('denver') || q.includes('phoenix') || q.includes('colorado') || q.includes('salt lake')) return 'America/Denver';
++    if (q.includes('san francisco') || q.includes('los angeles') || q.includes('seattle') || q.includes('california') || q.includes('las vegas')) return 'America/Los_Angeles';
 +    if (q.includes('toronto') || q.includes('montreal') || q.includes('ottawa')) return 'America/Toronto';
 +    if (q.includes('vancouver')) return 'America/Vancouver';
 +    if (q.includes('dubai') || q.includes('uae') || q.includes('abu dhabi')) return 'Asia/Dubai';
@@ -2327,16 +2340,65 @@ index f76200262c35d..2340b331c005b 100644
 +    if (q.includes('beijing') || q.includes('shanghai') || q.includes('china')) return 'Asia/Shanghai';
 +    if (q.includes('seoul') || q.includes('korea')) return 'Asia/Seoul';
 +    if (q.includes('bangkok') || q.includes('thailand')) return 'Asia/Bangkok';
++    if (q.includes('jakarta') || q.includes('indonesia')) return 'Asia/Jakarta';
 +    if (q.includes('cairo') || q.includes('egypt')) return 'Africa/Cairo';
 +    if (q.includes('johannesburg') || q.includes('cape town') || q.includes('south africa')) return 'Africa/Johannesburg';
 +    if (q.includes('sao paulo') || q.includes('rio') || q.includes('brazil')) return 'America/Sao_Paulo';
++    if (q.includes('buenos aires') || q.includes('argentina')) return 'America/Argentina/Buenos_Aires';
 +    if (q.includes('mexico')) return 'America/Mexico_City';
-+    if (q.includes('india') || q.includes('silchar') || q.includes('assam') || q.includes('delhi') || q.includes('mumbai') || q.includes('kolkata') || q.includes('bangalore') || q.includes('chennai') || q.includes('hyderabad')) return 'Asia/Kolkata';
++    if (q.includes('india') || q.includes('silchar') || q.includes('assam') || q.includes('delhi') || q.includes('mumbai') || q.includes('kolkata') || q.includes('bangalore') || q.includes('chennai') || q.includes('hyderabad') || q.includes('guwahati')) return 'Asia/Kolkata';
 +    try {
 +      Intl.DateTimeFormat(undefined, { timeZone: query });
 +      return query;
 +    } catch (_e) {}
++
++    if (typeof lon === 'number' && !isNaN(lon)) {
++      const rawOffset = Math.round(lon / 15);
++      if (rawOffset >= 8 && rawOffset <= 10) return 'Asia/Tokyo';
++      if (rawOffset >= 4 && rawOffset <= 6) return 'Asia/Kolkata';
++      if (rawOffset >= 0 && rawOffset <= 2) return 'Europe/London';
++      if (rawOffset >= -5 && rawOffset <= -4) return 'America/New_York';
++      if (rawOffset >= -8 && rawOffset <= -7) return 'America/Los_Angeles';
++    }
 +    return 'Asia/Kolkata';
++  }
++
++  function updateDigitalClock(): void {
++    if (!digitalClock) {
++      return;
++    }
++    const tz = (activeWeather && activeWeather.timezone)
++      ? activeWeather.timezone
++      : (activeWeather && activeWeather.city)
++        ? resolveCityTimezone(activeWeather.city, activeWeather.country, activeWeather.lon)
++        : undefined;
++
++    try {
++      const options: Intl.DateTimeFormatOptions = {
++        hour: '2-digit',
++        minute: '2-digit',
++        hourCycle: 'h23',
++      };
++      if (tz) {
++        options.timeZone = tz;
++      }
++      const parts = new Intl.DateTimeFormat('en-GB', options).formatToParts(new Date());
++      let hh = '00';
++      let mm = '00';
++      for (const part of parts) {
++        if (part.type === 'hour') {
++          hh = part.value.padStart(2, '0');
++        } else if (part.type === 'minute') {
++          mm = part.value.padStart(2, '0');
++        }
++      }
++      digitalClock.textContent = `${hh}:${mm}`;
++    } catch (_e) {
++      const now = tz ? getCityDate(tz) : new Date();
++      const hh = String(now.getHours()).padStart(2, '0');
++      const mm = String(now.getMinutes()).padStart(2, '0');
++      digitalClock.textContent = `${hh}:${mm}`;
++    }
 +  }
 +
 +  function getCityDate(timeZone: string): Date {
@@ -2714,7 +2776,9 @@ index f76200262c35d..2340b331c005b 100644
 +        countryName = regVal ? `${regVal}, ${ctryVal}` : (ctryVal || 'Global');
 +      }
 +
-+      const timezone = resolveCityTimezone(cityName);
++      const areaLat = (data.nearest_area && data.nearest_area[0]) ? parseFloat(data.nearest_area[0].latitude || '0') : 24.82;
++      const areaLon = (data.nearest_area && data.nearest_area[0]) ? parseFloat(data.nearest_area[0].longitude || '0') : 92.80;
++      const timezone = resolveCityTimezone(cityName, countryName, areaLon);
 +      const now = getCityDate(timezone);
 +      const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 +
@@ -2801,8 +2865,8 @@ index f76200262c35d..2340b331c005b 100644
 +        city: cityName,
 +        country: countryName,
 +        timezone,
-+        lat: 24.82,
-+        lon: 92.80,
++        lat: areaLat,
++        lon: areaLon,
 +        temp: liveTemp,
 +        conditionTitle: rawCond,
 +        theme,
@@ -3101,19 +3165,6 @@ index f76200262c35d..2340b331c005b 100644
 +  });
 +
 +  // Digital Watch (HH:MM) with Depth Effect
-+  const digitalClock = document.getElementById('digitalClock');
-+  const clockToggle = document.getElementById('clockToggle') as HTMLInputElement | null;
-+
-+  function updateDigitalClock(): void {
-+    if (!digitalClock) {
-+      return;
-+    }
-+    const now = new Date();
-+    const hh = String(now.getHours()).padStart(2, '0');
-+    const mm = String(now.getMinutes()).padStart(2, '0');
-+    digitalClock.textContent = `${hh}:${mm}`;
-+  }
-+
 +  updateDigitalClock();
 +  setInterval(updateDigitalClock, 1000);
 +
